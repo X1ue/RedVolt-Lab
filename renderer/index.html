@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'" />
+<title>系统优化助手</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>系统优化助手</h1>
+    <p class="sub">勾选 → 扫描预览（只读） → 你确认后才执行删除</p>
+  </div>
+  <div class="free">
+    <span class="label">C 盘可用</span>
+    <strong id="freeSpace">—</strong>
+    <button id="refreshFree" class="btn ghost small">刷新</button>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button class="tab active" data-tab="disk">磁盘清理</button>
+  <button class="tab" data-tab="system">系统级清理</button>
+  <button class="tab" data-tab="startup">启动项</button>
+  <button class="tab" data-tab="info">系统信息</button>
+  <button class="tab" data-tab="update">更新<span id="updateDot" class="dot hidden"></span></button>
+  <button class="tab" data-tab="log">清理日志</button>
+</nav>
+
+<main>
+  <!-- 磁盘清理 -->
+  <section id="tab-disk" class="panel active">
+    <div class="toolbar">
+      <button id="diskSelectSafe" class="btn ghost">只勾选安全项</button>
+      <button id="diskSelectNone" class="btn ghost">清空勾选</button>
+      <span class="spacer"></span>
+      <button id="diskScan" class="btn primary">扫描（只读）</button>
+      <button id="diskClean" class="btn danger">清理勾选项</button>
+    </div>
+    <div id="browserBanner" class="banner hidden"></div>
+    <p class="hint">扫描只读取文件信息，不删除任何内容。NVIDIA 缓存与「注意」级项目默认不勾选，需要你主动选。</p>
+    <div id="diskList" class="list"></div>
+  </section>
+
+  <!-- 系统级 -->
+  <section id="tab-system" class="panel">
+    <div class="toolbar">
+      <span class="spacer"></span>
+      <button id="sysScan" class="btn primary">扫描（需要管理员）</button>
+      <button id="sysClean" class="btn danger">清理勾选项（需要管理员）</button>
+    </div>
+    <p class="hint">这些项目位于系统目录，扫描和清理都会弹一次 Windows 管理员授权（UAC）。拒绝授权则不做任何修改。提权脚本内部还有一份独立白名单，表外路径一律拒绝。</p>
+    <div id="systemList" class="list"></div>
+  </section>
+
+  <!-- 启动项 -->
+  <section id="tab-startup" class="panel">
+    <div class="toolbar">
+      <button id="startupRefresh" class="btn ghost">刷新列表</button>
+      <span class="spacer"></span>
+      <button id="openBackup" class="btn ghost">打开备份目录</button>
+    </div>
+    <p class="hint">禁用前会把原始注册表值或启动文件完整备份；随时可以一键恢复。修改 HKLM（所有用户）项需要管理员授权。</p>
+    <div id="backupPath" class="path"></div>
+    <div id="startupList" class="list"></div>
+  </section>
+
+  <!-- 系统信息 -->
+  <section id="tab-info" class="panel">
+    <div id="infoCards" class="cards"></div>
+    <div class="toolbar">
+      <select id="folderRoot"></select>
+      <button id="folderScan" class="btn primary">统计大文件夹（只读）</button>
+      <span id="folderProgress" class="progress"></span>
+    </div>
+    <p class="hint">大文件夹排行只统计体积，不会删除或修改任何文件。扫描大目录可能需要一两分钟。</p>
+    <div id="folderList" class="list"></div>
+  </section>
+
+  <!-- 更新 -->
+  <section id="tab-update" class="panel">
+    <div class="toolbar">
+      <button id="updateCheck" class="btn primary">检查更新</button>
+      <span id="updateState" class="progress"></span>
+      <span class="spacer"></span>
+      <button id="updateDownload" class="btn primary hidden">下载更新</button>
+      <button id="updateInstall" class="btn danger hidden">安装并重启</button>
+    </div>
+    <div id="updateBar" class="bar hidden"><i></i></div>
+    <div id="updateCards" class="cards"></div>
+    <div id="updateNotes" class="path"></div>
+    <p class="hint">更新文件托管在 GitHub Releases，软件只读取公开下载地址，不需要任何账号或密钥。只有「Setup 安装版」支持自动更新，便携版不能自我更新。发现新版本后需要你分别点击「下载更新」和「安装并重启」，软件不会静默覆盖文件，也不会不打招呼就重启。</p>
+  </section>
+
+  <!-- 日志 -->
+  <section id="tab-log" class="panel">
+    <div class="toolbar">
+      <button id="logRefresh" class="btn ghost">刷新</button>
+      <button id="logOpen" class="btn ghost">打开日志位置</button>
+      <span class="spacer"></span>
+      <span id="logPath" class="path"></span>
+    </div>
+    <pre id="logBody" class="log"></pre>
+  </section>
+</main>
+
+<div id="status" class="status hidden"></div>
+
+<!-- 确认弹窗 -->
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <h2 id="modalTitle">确认操作</h2>
+    <p id="modalDesc" class="hint"></p>
+    <div id="modalList" class="modal-list"></div>
+    <label id="modalAckWrap" class="ack hidden">
+      <input type="checkbox" id="modalAck" />
+      <span>我已确认以上项目可以被删除 / 修改</span>
+    </label>
+    <div class="modal-actions">
+      <button id="modalCancel" class="btn ghost">取消</button>
+      <button id="modalOk" class="btn danger">确认执行</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

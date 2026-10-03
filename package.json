@@ -1,0 +1,54 @@
+{
+  "name": "sys-optimizer",
+  "productName": "系统优化助手",
+  "version": "1.0.1",
+  "description": "Windows 系统优化与垃圾清理工具：勾选 → 扫描预览 → 确认清理",
+  "main": "main.js",
+  "author": "local",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.local.sysoptimizer",
+    "productName": "系统优化助手",
+    "asar": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "engine/**/*",
+      "renderer/**/*",
+      "elevated/**/*",
+      "build/icon.ico"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "artifactName": "SysOptimizer-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/X1ue/SYS-OPTIMIZER/releases/latest/download/",
+        "channel": "latest"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "pngjs": "^7.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}
