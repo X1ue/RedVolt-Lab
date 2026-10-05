@@ -26,7 +26,7 @@ async function probe(win) {
   await new Promise((r) => setTimeout(r, 2500));
   log('userData=' + JSON.stringify(await ev('window.optimizer.getPaths().then(p=>p.userData)')));
 
-  await ev(`document.querySelector('#tabs button[data-tab="system"]').click(); 1`);
+  await ev(`document.querySelector('button[data-tab="system"]').click(); 1`);
   await new Promise((r) => setTimeout(r, 500));
   log('clicking sysScan —— 等待 UAC 授权……');
   await ev('document.getElementById("sysScan").click(); 1');

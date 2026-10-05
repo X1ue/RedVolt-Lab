@@ -76,7 +76,7 @@ async function probe(win) {
   };
 
   for (const t of ['startup', 'info', 'log', 'system', 'disk']) {
-    await ev(`document.querySelector('#tabs button[data-tab="${t}"]').click(); 1`);
+    await ev(`document.querySelector('button[data-tab="${t}"]').click(); 1`);
     const active = await ev('document.querySelector(".panel.active").id');
     await waitIdle(30000);
     log('tab ' + t + ' -> ' + active);

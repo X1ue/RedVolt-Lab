@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -10,9 +10,18 @@ const clean = require('./engine/clean');
 const admin = require('./engine/admin');
 const startup = require('./engine/startup');
 const sysinfo = require('./engine/sysinfo');
+const metrics = require('./engine/metrics');
+const gload = require('./engine/gload');
 const system = require('./engine/system');
 const log = require('./engine/log');
 const updater = require('./engine/updater');
+const settings = require('./engine/settings');
+const migrate = require('./engine/migrate');
+const gpu = require('./engine/gpu');
+const power = require('./engine/power');
+const game = require('./engine/game');
+const tiers = require('./engine/tiers');
+const memtrim = require('./engine/memtrim');
 const { runCommand } = require('./engine/ps');
 
 let win = null;
@@ -30,8 +39,10 @@ function createWindow() {
     height: 780,
     minWidth: 900,
     minHeight: 640,
-    title: '系统优化助手',
-    backgroundColor: '#1b1c20',
+    title: 'RedVolt Lab',
+    backgroundColor: '#000000',
+    frame: false,
+    maximizable: false,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -166,6 +177,128 @@ ipcMain.handle('startup:set', async (e, id, enabled, confirmed) => {
 });
 
 ipcMain.handle('sysinfo:get', () => sysinfo.get());
+ipcMain.handle('metrics:get', () => metrics.get());
+
+ipcMain.handle('gpu:meta', () => gpu.meta());
+ipcMain.handle('gpu:list', () => gpu.list());
+ipcMain.handle('gpu:installed', (e, force) => gpu.installed(force === true));
+ipcMain.handle('gpu:get', (e, profile, name) => gpu.get(profile, name));
+ipcMain.handle('gpu:getAll', (e, profile, name) => gpu.getAll(profile, name));
+ipcMain.handle('gpu:catalog', (e, force) => gpu.catalog(force === true));
+ipcMain.handle('gpu:icons', (e, paths) => gpu.icons(Array.isArray(paths) ? paths : []));
+
+// 只接受由本机文件对话框选出的 exe，渲染层无法指定任意路径写入驱动配置
+const pickedExes = new Set();
+
+ipcMain.handle('gpu:pickExe', async () => {
+  if (!dialog || !win) return { ok: false, message: '窗口不可用' };
+  const r = await dialog.showOpenDialog(win, {
+    title: '选择程序主程序（.exe）',
+    properties: ['openFile'],
+    filters: [{ name: 'Program (exe)', extensions: ['exe'] }],
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+  const p = r.filePaths[0];
+  pickedExes.add(p);
+  if (pickedExes.size > 20) pickedExes.delete(pickedExes.values().next().value);
+  return { ok: true, exe: p };
+});
+
+ipcMain.handle('gpu:addApp', async (e, exePath, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const p = typeof exePath === 'string' ? exePath : '';
+  if (!p || !pickedExes.has(p)) return { ok: false, message: '请先通过「添加程序」选择可执行文件' };
+  const r = await gpu.addApp(p);
+  log.append(`显卡添加程序 | ${path.basename(p)} | ${r.ok ? (r.existed ? '已存在方案' : '成功') : '失败: ' + r.error}`);
+  return r;
+});
+
+ipcMain.handle('gpu:delProfile', async (e, profile, name, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const label = typeof name === 'string' ? name : '';
+  if (!label) return { ok: false, message: '缺少方案名' };
+  const r = await gpu.delProfile(profile, label);
+  log.append(`显卡移除方案 | ${label} | ${r.ok ? '成功' : '失败: ' + r.error}`);
+  return r;
+});
+
+ipcMain.handle('gpu:set', async (e, profile, name, id, value, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await gpu.set(profile, name, id, value);
+  log.append(`显卡设置 | ${name || profile} ${id}=${value} | ${r.ok ? '成功' : '失败: ' + r.error}`);
+  return r;
+});
+
+ipcMain.handle('gpu:reset', async (e, profile, name, id, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await gpu.reset(profile, name, id);
+  log.append(`显卡恢复默认 | ${name || profile} ${id} | ${r.ok ? '成功' : '失败: ' + r.error}`);
+  return r;
+});
+
+ipcMain.handle('power:get', () => power.status());
+ipcMain.handle('power:set', async (e, key, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await power.apply(key, true);
+  log.append(`电源计划 | ${key} | ${r.ok ? (r.unchanged ? '已是当前' : '成功') : '失败: ' + r.message}`);
+  return r;
+});
+ipcMain.handle('power:setGuid', async (e, guid, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await power.applyGuid(guid, true);
+  log.append(`电源计划 | ${guid} | ${r.ok ? (r.unchanged ? '已是当前' : '成功') : '失败: ' + r.message}`);
+  return r;
+});
+
+// ==================== 游戏开关（注册表白名单，改前备份） ====================
+
+ipcMain.handle('game:get', () => game.status());
+
+ipcMain.handle('game:apply', async (e, id, mode, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await game.apply(id, mode, true);
+  log.append(`游戏开关 | ${id} → ${mode} | ${r.ok ? (r.unchanged ? '已是该状态' : '成功') : '失败: ' + (r.message || '')}`);
+  return r;
+});
+
+ipcMain.handle('game:restore', async (e, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await game.restoreAll(true);
+  log.append(`游戏开关还原 | ${r.ok ? '已还原 ' + (r.restored || 0) + ' 项' : '失败: ' + (r.message || '')}`);
+  return r;
+});
+
+// ==================== 一键优化模式（三档预设） ====================
+
+ipcMain.handle('tiers:info', () => tiers.info());
+ipcMain.handle('tiers:preview', (e, key) => tiers.preview(typeof key === 'string' ? key : ''));
+
+ipcMain.handle('tiers:apply', async (e, key, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await tiers.apply(typeof key === 'string' ? key : '', true);
+  const parts = [];
+  if (r.power) parts.push('电源' + (r.power.ok ? '已改' : '失败'));
+  if (r.game) parts.push('系统开关' + r.game.count + '项' + (r.game.ok ? '已改' : '失败'));
+  if (r.gpu) parts.push('N卡' + r.gpu.count + '项' + (r.gpu.ok ? '已改' : '失败'));
+  log.append(`一键优化 | ${key} | ${r.ok ? (r.unchanged ? '已是该档位状态' : parts.join('，')) : '失败: ' + (r.errors || []).join('；')}`);
+  return r;
+});
+
+ipcMain.handle('tiers:restore', async (e, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const r = await tiers.restore(true);
+  log.append(`一键优化还原 | ${r.ok ? '已按快照还原（N卡 ' + r.restored.gpu + ' 项、开关 ' + r.restored.game + ' 项）' : '失败: ' + (r.message || '')}`);
+  return r;
+});
+
+// ==================== 内存一键释放（只收工作集，不结束进程） ====================
+
+ipcMain.handle('mem:trim', async (e, confirmed) => {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝执行' };
+  const r = await memtrim.trim();
+  log.append(`内存释放 | ${r.ok ? '整理 ' + r.trimmed + ' 个进程，工作集 ' + r.beforeMB.toFixed(0) + ' MB → ' + r.afterMB.toFixed(0) + ' MB（跳过 ' + r.skipped + ' 个）' : '失败: ' + (r.message || '')}`);
+  return r;
+});
 
 ipcMain.handle('sysinfo:topFolders', (e, root, limit) => {
   const allowed = [
@@ -216,17 +349,41 @@ ipcMain.handle('update:check', () => updater.check());
 ipcMain.handle('update:download', () => updater.download());
 ipcMain.handle('update:install', (e, confirmed) => updater.install(confirmed));
 
+// ==================== 设置（界面语言等） ====================
+
+ipcMain.handle('settings:get', () => settings.get());
+ipcMain.handle('settings:set', (e, patch) => settings.set(patch));
+ipcMain.handle('app:version', () => app.getVersion());
+
+// ==================== 无边框窗口控制（最小化 / 关闭） ====================
+
+ipcMain.handle('win:minimize', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) w.minimize();
+});
+
+ipcMain.handle('win:close', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) w.close();
+});
+
+
 // ==================== 生命周期 ====================
 
 app.whenReady().then(() => {
+  const migrated = migrate.run();
   const userData = app.getPath('userData');
   admin.init(userData);
   startup.init(userData);
   log.init(userData);
+  if (migrated.from) {
+    log.append(`迁移旧版本数据 | ${migrated.from} → ${[...migrated.files, ...migrated.dirs].join(', ') || '无可迁移内容'}${migrated.error ? ' | 失败: ' + migrated.error : ''}`);
+  }
   updater.init({ send, appendLog: log.append });
   log.append('应用启动');
   createWindow();
-  if (app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR) {
+  const st = settings.get();
+  if (app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR && st.eula && st.autoUpdate !== false) {
     setTimeout(() => { updater.check(); }, 4000);
   }
   app.on('activate', () => {
@@ -235,5 +392,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  gload.stop();
   if (process.platform !== 'darwin') app.quit();
 });

@@ -1,7 +1,7 @@
 {
-  "name": "sys-optimizer",
-  "productName": "系统优化助手",
-  "version": "1.0.1",
+  "name": "redvolt-code",
+  "productName": "RedVolt Lab",
+  "version": "1.0.2-test.17",
   "description": "Windows 系统优化与垃圾清理工具：勾选 → 扫描预览 → 确认清理",
   "main": "main.js",
   "author": "local",
@@ -12,8 +12,13 @@
   },
   "build": {
     "appId": "com.local.sysoptimizer",
-    "productName": "系统优化助手",
+    "productName": "RedVolt Lab",
     "asar": false,
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "compression": "maximum",
     "files": [
       "main.js",
       "preload.js",
@@ -33,7 +38,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "artifactName": "SysOptimizer-Setup-${version}.${ext}"
+      "artifactName": "RedVolt-Lab-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "RedVolt-Lab-${version}.${ext}"
     },
     "publish": [
       {
@@ -41,7 +49,8 @@
         "url": "https://github.com/X1ue/SYS-OPTIMIZER/releases/latest/download/",
         "channel": "latest"
       }
-    ]
+    ],
+    "afterPack": "build/afterPack.js"
   },
   "devDependencies": {
     "electron": "^44.5.1",

@@ -23,7 +23,7 @@ async function probe(win) {
   await new Promise((r) => setTimeout(r, 2500));
 
   // 系统信息卡片
-  await ev(`document.querySelector('#tabs button[data-tab="info"]').click(); 1`);
+  await ev(`document.querySelector('button[data-tab="info"]').click(); 1`);
   await new Promise((r) => setTimeout(r, 15000));
   log('cards=' + JSON.stringify(await ev(
     'JSON.stringify([...document.querySelectorAll("#infoCards .card")].map(c=>c.textContent.replace(/\\s+/g," ").trim()))'
@@ -54,7 +54,7 @@ async function probe(win) {
   log('openPathGuard=' + JSON.stringify(await ev('window.optimizer.openPath("C:\\\\Windows")')));
 
   // 日志页
-  await ev(`document.querySelector('#tabs button[data-tab="log"]').click(); 1`);
+  await ev(`document.querySelector('button[data-tab="log"]').click(); 1`);
   await new Promise((r) => setTimeout(r, 2000));
   log('logLines=' + (await ev('document.getElementById("logBody").textContent.split("\\n").length')));
   log('logHead=' + JSON.stringify(await ev('document.getElementById("logBody").textContent.slice(0,160)')));

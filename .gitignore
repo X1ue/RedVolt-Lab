@@ -3,4 +3,5 @@ dist/
 out/
 *.log
 shot-*.png
+.ref/
 .DS_Store

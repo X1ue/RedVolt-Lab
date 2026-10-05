@@ -3,40 +3,149 @@
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'" />
-<title>系统优化助手</title>
+<title>RedVolt Lab</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+<canvas id="bgFx"></canvas>
+
+<aside id="rail">
+  <button class="tab active" data-tab="home"><span class="tico">⌂</span><span class="tlabel">首页</span></button>
+  <button class="tab" data-tab="disk"><span class="tico">▣</span><span class="tlabel">磁盘清理</span></button>
+  <button class="tab" data-tab="system"><span class="tico">⬢</span><span class="tlabel">系统级清理</span></button>
+  <button class="tab" data-tab="gpu"><span class="tico"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" d="M1.6 4.2h12.8v7.2H1.6z"/><circle cx="5.6" cy="7.8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.1"/><path fill="none" stroke="currentColor" stroke-width="1.1" d="M9.6 6.2h3M9.6 8h3M9.6 9.8h3M3.6 11.4v1.6h4.4v-1.6"/></svg></span><span class="tlabel">显卡优化</span><span id="gpuEdition" class="edition hidden"></span></button>
+  <button class="tab" data-tab="power"><span class="tico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.6" y="4.6" width="11" height="6.8" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.2"/><path fill="currentColor" d="M13.4 6.6h1.1v2.8h-1.1z"/><path fill="currentColor" d="M3.4 6.4h2v3.2h-2zM6.4 6.4h2v3.2h-2z"/></svg></span><span class="tlabel">电源优化</span></button>
+  <button class="tab" data-tab="game"><span class="tico"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" d="M4.6 4.4h6.8a3 3 0 0 1 2.9 2.2l.6 2.6a1.8 1.8 0 0 1-3.2 1.5L10.6 9.4H5.4l-1.1 1.3a1.8 1.8 0 0 1-3.2-1.5l.6-2.6a3 3 0 0 1 2.9-2.2z"/><path fill="currentColor" d="M4.6 6.1h.9v.9h.9v.9h-.9v.9h-.9v-.9h-.9v-.9h.9z"/><circle cx="11" cy="6.8" r=".7"/><circle cx="12.3" cy="8.1" r=".7"/></svg></span><span class="tlabel">游戏开关</span></button>
+  <button class="tab" data-tab="startup"><span class="tico">⏻</span><span class="tlabel">启动项</span></button>
+  <button class="tab" data-tab="info"><span class="tico">◉</span><span class="tlabel">系统信息</span></button>
+  <button class="tab" data-tab="update"><span class="tico">↻</span><span class="tlabel">更新<span id="updateDot" class="dot hidden"></span></span></button>
+  <button class="tab" data-tab="log"><span class="tico">☰</span><span class="tlabel">清理日志</span></button>
+</aside>
+
+<div id="shell">
 <header>
-  <div class="title">
-    <h1>系统优化助手</h1>
-    <p class="sub">勾选 → 扫描预览（只读） → 你确认后才执行删除</p>
+  <div class="brand">
+    <img class="logo" src="icon.png" alt="" />
+    <div class="title">
+      <h1>RedVolt Lab</h1>
+      <p class="sub">勾选 → 扫描预览（只读） → 你确认后才执行删除</p>
+    </div>
   </div>
   <div class="free">
     <span class="label">C 盘可用</span>
     <strong id="freeSpace">—</strong>
     <button id="refreshFree" class="btn ghost small">刷新</button>
+    <select id="langSel" class="lang" title="界面语言 / UI language">
+      <option value="zh">中文</option>
+      <option value="en">English</option>
+    </select>
+    <button id="openSettings" class="btn ghost small">⚙ 软件设置</button>
+    <div class="winctl">
+      <button id="winMin" class="wbtn" title="最小化窗口">—</button>
+      <button id="winClose" class="wbtn close" title="关闭窗口">✕</button>
+    </div>
   </div>
 </header>
 
-<nav id="tabs">
-  <button class="tab active" data-tab="disk">磁盘清理</button>
-  <button class="tab" data-tab="system">系统级清理</button>
-  <button class="tab" data-tab="startup">启动项</button>
-  <button class="tab" data-tab="info">系统信息</button>
-  <button class="tab" data-tab="update">更新<span id="updateDot" class="dot hidden"></span></button>
-  <button class="tab" data-tab="log">清理日志</button>
-</nav>
-
 <main>
+  <!-- 首页 -->
+  <section id="tab-home" class="panel active">
+    <div class="home-grid">
+      <div class="hero">
+        <h2 class="hero-title">极致的性能强化</h2>
+        <p class="hero-sub">实时掌握 CPU / GPU / 内存占用。清理一律先只读扫描预览，逐项复查安全规则，你确认后才执行删除。</p>
+        <div class="hero-actions">
+          <button id="homeOneKey" class="btn primary big">一键清理</button>
+          <button id="homeManual" class="btn ghost big">手动选择</button>
+        </div>
+        <div class="hero-stats">
+          <div class="stat"><span class="sv" id="statFree">—</span><span class="sk">C 盘可用</span></div>
+          <div class="stat"><span class="sv" id="statPicked">0</span><span class="sk">已勾选项目</span></div>
+          <div class="stat"><span class="sv" id="statEst">—</span><span class="sk">预计释放</span></div>
+        </div>
+      </div>
+
+      <div class="mon-card">
+        <div class="mon-head"><span>实时监控</span><span class="mon-live">LIVE</span></div>
+        <div class="mon-item">
+          <div class="mon-row">
+            <span class="mk">CPU</span>
+            <div class="mon-bar"><i id="barCpu"></i></div>
+            <span class="mv" id="valCpu">—</span>
+          </div>
+          <canvas class="spark" id="sparkCpu"></canvas>
+          <div class="mon-note" id="noteCpu"></div>
+        </div>
+        <div class="mon-item">
+          <div class="mon-row">
+            <span class="mk">GPU</span>
+            <div class="mon-bar"><i id="barGpu"></i></div>
+            <span class="mv" id="valGpu">—</span>
+          </div>
+          <canvas class="spark" id="sparkGpu"></canvas>
+          <div class="mon-note" id="noteGpu"></div>
+        </div>
+        <div class="mon-item">
+          <div class="mon-row">
+            <span class="mk">内存</span>
+            <div class="mon-bar"><i id="barRam"></i></div>
+            <span class="mv" id="valRam">—</span>
+          </div>
+          <canvas class="spark" id="sparkRam"></canvas>
+          <div class="mon-note" id="noteRam"></div>
+        </div>
+        <button id="memTrim" class="btn ghost small mem-btn">一键释放</button>
+      </div>
+    </div>
+
+    <div class="quick">
+      <button class="qcard" data-goto="disk">
+        <span class="qi">▣</span>
+        <span class="qt">磁盘清理</span>
+        <span class="qn">浏览器缓存、Temp、回收站等 8 类用户目录</span>
+      </button>
+      <button class="qcard" data-goto="system">
+        <span class="qi">⬢</span>
+        <span class="qt">系统级清理</span>
+        <span class="qn">更新缓存、预取、DNS 缓存（需管理员）</span>
+      </button>
+      <button class="qcard" data-goto="startup">
+        <span class="qi">⏻</span>
+        <span class="qt">启动项</span>
+        <span class="qn">开机自启管理，禁用前先备份</span>
+      </button>
+      <button class="qcard" data-goto="info">
+        <span class="qi">◉</span>
+        <span class="qt">系统信息</span>
+        <span class="qn">硬件概览与大文件夹排行（只读）</span>
+      </button>
+    </div>
+
+    <div class="tier-card">
+      <div class="power-head">
+        <div class="power-current">
+          <span class="power-cur-label">一键优化模式</span>
+          <strong id="tierSummary">—</strong>
+        </div>
+        <span class="spacer"></span>
+        <button id="tierRestore" class="btn ghost small hidden">还原到优化前</button>
+        <button id="tierReload" class="btn ghost small">重新读取</button>
+      </div>
+      <div id="tierPending" class="gpu-pending hidden"></div>
+      <div id="tierList" class="tier-list hidden"></div>
+      <div id="tierOpts" class="tier-opts"></div>
+      <p class="hint">三档预设只会改档位里列出的项目，其余设置一律不动。应用前逐项列出「当前值 → 目标值」，并把原值整份快照到本软件目录，随时可以「还原到优化前」。N 卡项只写本机驱动确实列出的取值，驱动没提供的会在清单里标明「已跳过」，不会硬写。</p>
+    </div>
+  </section>
+
   <!-- 磁盘清理 -->
-  <section id="tab-disk" class="panel active">
+  <section id="tab-disk" class="panel">
     <div class="toolbar">
-      <button id="diskSelectSafe" class="btn ghost">只勾选安全项</button>
-      <button id="diskSelectNone" class="btn ghost">清空勾选</button>
-      <span class="spacer"></span>
       <button id="diskScan" class="btn primary">扫描（只读）</button>
       <button id="diskClean" class="btn danger">清理勾选项</button>
+      <span class="spacer"></span>
+      <button id="diskSelectSafe" class="btn ghost">只勾选安全项</button>
+      <button id="diskSelectNone" class="btn ghost">清空勾选</button>
     </div>
     <div id="browserBanner" class="banner hidden"></div>
     <p class="hint">扫描只读取文件信息，不删除任何内容。NVIDIA 缓存与「注意」级项目默认不勾选，需要你主动选。</p>
@@ -52,6 +161,74 @@
     </div>
     <p class="hint">这些项目位于系统目录，扫描和清理都会弹一次 Windows 管理员授权（UAC）。拒绝授权则不做任何修改。提权脚本内部还有一份独立白名单，表外路径一律拒绝。</p>
     <div id="systemList" class="list"></div>
+  </section>
+
+  <!-- 显卡优化 -->
+  <section id="tab-gpu" class="panel">
+    <div id="gpuBanner" class="banner hidden"></div>
+    <div id="gpuAmd" class="gpu-amd hidden"></div>
+    <div class="gpu-layout" id="gpuLayout">
+      <div class="gpu-left">
+        <div class="gpu-tools">
+          <input id="gpuFilter" type="text" placeholder="搜索程序…" />
+          <button id="gpuAddApp" class="btn ghost small">＋ 添加程序</button>
+        </div>
+        <div id="gpuProfiles" class="gpu-profiles"></div>
+        <label class="gpu-toggle" for="gpuShowAll"><input id="gpuShowAll" type="checkbox" /><span>显示全部驱动方案</span></label>
+      </div>
+      <div class="gpu-right">
+        <div class="gpu-current">
+          <img id="gpuProfileIcon" class="gp-icon hidden" alt="" />
+          <div class="gpu-title">
+            <strong id="gpuProfileName">—</strong>
+            <span id="gpuProfileExe" class="gpu-exe"></span>
+          </div>
+          <span class="spacer"></span>
+          <button id="gpuDelProfile" class="btn ghost small hidden">移除该方案</button>
+          <button id="gpuReload" class="btn ghost small">重新读取</button>
+        </div>
+        <div id="gpuPending" class="gpu-pending hidden"></div>
+        <div class="gpu-settools">
+          <input id="gpuSetFilter" type="text" placeholder="搜索设置项…" />
+          <label class="gpu-toggle" for="gpuShowSets"><input id="gpuShowSets" type="checkbox" /><span id="gpuShowSetsLabel">显示驱动全部设置项</span></label>
+        </div>
+        <div id="gpuSettings" class="gpu-settings"></div>
+        <p class="hint">修改只写入 NVIDIA 驱动的 3D 配置（与控制面板同源），不删除任何文件。左侧只列出本机确实存在的程序和用户自建方案；勾选「显示全部驱动方案」可展开驱动内置的全部方案。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 电源优化 -->
+  <section id="tab-power" class="panel">
+    <div class="power-head">
+      <div class="power-current">
+        <span class="power-cur-label">当前电源计划</span>
+        <strong id="powerCurName">—</strong>
+        <span id="powerCurGuid" class="gpu-exe"></span>
+      </div>
+      <span class="spacer"></span>
+      <button id="powerReload" class="btn ghost small">重新读取</button>
+    </div>
+    <div id="powerPending" class="gpu-pending hidden"></div>
+    <div id="powerOpts" class="power-opts"></div>
+    <div id="powerExtra" class="power-extra hidden"></div>
+    <p class="hint">切换只调用系统自带的 powercfg 修改「当前活动电源计划」，不删除任何方案、不改注册表其它项；点选后还会再确认一次才生效。改版系统（如 AtlasOS）若移除了方案模板，对应档位会显示为不可用；你自己新建的、或改版系统自带的其它计划，会在下方「本机其他电源计划」里列出，同样可以点选切换。</p>
+  </section>
+
+  <!-- 游戏开关 -->
+  <section id="tab-game" class="panel">
+    <div class="power-head">
+      <div class="power-current">
+        <span class="power-cur-label">游戏相关系统开关</span>
+        <strong id="gameSummary">—</strong>
+      </div>
+      <span class="spacer"></span>
+      <button id="gameRestore" class="btn ghost small hidden">还原到修改前</button>
+      <button id="gameReload" class="btn ghost small">重新读取</button>
+    </div>
+    <div id="gamePending" class="gpu-pending hidden"></div>
+    <div id="gameList" class="game-list"></div>
+    <p class="hint">这里只改与游戏相关的几个系统开关（注册表白名单里的值），不动任何文件、不结束任何进程。改动前会把原值备份到本软件目录，随时可以「还原到修改前」；每一项都要再点一次「应用」才生效。硬件加速 GPU 计划（HAGS）写在 HKLM，需要一次管理员授权，并且要重启电脑才生效。</p>
   </section>
 
   <!-- 启动项 -->
@@ -104,6 +281,7 @@
     <pre id="logBody" class="log"></pre>
   </section>
 </main>
+</div>
 
 <div id="status" class="status hidden"></div>
 
@@ -124,6 +302,60 @@
   </div>
 </div>
 
+<!-- 软件设置弹窗 -->
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-box settings-box">
+    <h2>软件设置</h2>
+    <label class="set-row">
+      <span>界面语言</span>
+      <select id="setLang">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+    <label class="set-row">
+      <span>背景闪电动效</span>
+      <input type="checkbox" id="setFx" />
+    </label>
+    <label class="set-row">
+      <span>启动时自动检查更新</span>
+      <input type="checkbox" id="setAutoUpdate" />
+    </label>
+    <div class="set-row">
+      <span>当前版本</span>
+      <span id="setVersion" class="mono">—</span>
+    </div>
+    <p class="hint">清理确认、NVIDIA 缓存等安全规则不受这里的影响，删除前永远会先扫描预览并让你确认。</p>
+    <div class="modal-actions">
+      <button id="settingsClose" class="btn ghost">关闭设置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 首启免责声明及使用协议 -->
+<div id="eulaModal" class="modal eula hidden">
+  <div class="modal-box eula-box">
+    <h2><span class="eula-ico">①</span><span id="eulaTitle">免责声明及使用协议</span></h2>
+    <p id="eulaLead" class="hint"></p>
+    <div id="eulaBody" class="eula-body"></div>
+    <label class="ack">
+      <input type="checkbox" id="eulaAck" />
+      <span id="eulaAckText">我已阅读并同意上述条款</span>
+    </label>
+    <div class="modal-actions">
+      <button id="eulaEnter" class="btn primary" disabled>进入软件</button>
+      <button id="eulaDecline" class="btn ghost">拒绝并退出</button>
+    </div>
+  </div>
+</div>
+
+<script src="fx.js"></script>
+<script src="i18n.js"></script>
+<script src="eula.js"></script>
 <script src="app.js"></script>
+<script src="gpu.js"></script>
+<script src="power.js"></script>
+<script src="game.js"></script>
+<script src="tiers.js"></script>
 </body>
 </html>

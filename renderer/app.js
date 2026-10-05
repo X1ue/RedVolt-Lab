@@ -124,10 +124,10 @@ function confirmDialog(opts) {
   });
 }
 
-function resultDialog(title, lines) {
+function resultDialog(title, lines, desc) {
   return confirmDialog({
     title,
-    desc: '',
+    desc: desc || '',
     items: lines.map((l) => ({ name: l.name, text: l.text })),
     requireAck: false,
     okText: '知道了',
@@ -140,7 +140,12 @@ function resultDialog(title, lines) {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + name));
+  if (name === 'home') startMonitor(); else stopMonitor();
   if (name === 'startup' && !state.startup.length) loadStartup();
+  if (name === 'gpu' && window.gpu) window.gpu.ensureLoaded();
+  if (name === 'power' && window.power) window.power.ensureLoaded();
+  if (name === 'game' && window.game) window.game.ensureLoaded();
+  if (name !== 'gpu' && window.gpu && window.gpu.pause) window.gpu.pause();
   if (name === 'info' && !state.infoLoaded) loadInfo();
   if (name === 'log') loadLog();
 }
@@ -217,6 +222,19 @@ function refreshButtons() {
   $('startupRefresh').disabled = busy;
   $('folderScan').disabled = busy;
   $('logRefresh').disabled = busy;
+  updateHeroStats();
+}
+
+function updateHeroStats() {
+  const picked = [...state.selected];
+  $('statPicked').textContent = String(picked.length);
+  let est = 0;
+  let any = false;
+  for (const id of picked) {
+    const r = state.scan.get(id);
+    if (r && r.status === 'ok') { est += Number(r.size) || 0; any = true; }
+  }
+  $('statEst').textContent = any ? fmtBytes(est) : '—';
 }
 
 // ---------- 扫描 ----------
@@ -328,6 +346,7 @@ async function doClean(group) {
   if (!ok) { status('已取消，未删除任何内容'); return; }
 
   setBusy(true, '正在清理……');
+  const t0 = Date.now();
   try {
     const res = group === 'disk' ? await api.cleanUser(ids, true) : await api.cleanSystem(ids, true);
     if (res.canceled) { status(res.message || '已取消管理员授权，未做任何修改', 'err'); return; }
@@ -354,7 +373,9 @@ async function doClean(group) {
     lines.unshift({ name: '本次释放（按文件累计）', text: fmtBytes(freed) });
     if (diskLine) lines.unshift({ name: '磁盘实际变化', text: diskLine });
 
-    await resultDialog('清理完成', lines);
+    const skipped = (res.results || []).filter((r) => r.status !== 'done').length + (res.refused || []).length;
+    const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    await resultDialog('清理完成', lines, `释放 ${fmtBytes(freed)} · 跳过 ${skipped} 项 · 耗时 ${secs} 秒`);
     await refreshFree();
     await doScanSilent(group);
   } catch (e) {
@@ -730,21 +751,168 @@ async function loadLog() {
   }
 }
 
+// ---------- 首页实时监控（CPU / GPU / 内存，只读） ----------
+
+let monTimer = null;
+const monHist = { Cpu: [], Gpu: [], Ram: [] };
+
+function pushHist(key, v) {
+  const a = monHist[key];
+  a.push(Math.max(0, Math.min(100, Number(v) || 0)));
+  if (a.length > 60) a.shift();
+}
+
+// 最近 60 次采样的迷你折线，横轴固定 60 格，不足时从左侧开始画
+function drawSpark(key) {
+  const cv = $('spark' + key);
+  if (!cv) return;
+  const w = cv.clientWidth;
+  const h = cv.clientHeight;
+  if (!w || !h) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.floor(w * dpr);
+  cv.height = Math.floor(h * dpr);
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  const data = monHist[key];
+  if (data.length < 2) return;
+  const px = (i) => (i / 59) * w;
+  const py = (v) => h - 2 - (v / 100) * (h - 4);
+  c.beginPath();
+  for (let i = 0; i < data.length; i++) {
+    if (i === 0) c.moveTo(px(i), py(data[i]));
+    else c.lineTo(px(i), py(data[i]));
+  }
+  c.strokeStyle = 'rgba(255,92,72,.95)';
+  c.lineWidth = 1.4;
+  c.shadowColor = 'rgba(255,59,59,.75)';
+  c.shadowBlur = 6;
+  c.stroke();
+  c.shadowBlur = 0;
+  c.lineTo(px(data.length - 1), h);
+  c.lineTo(0, h);
+  c.closePath();
+  c.fillStyle = 'rgba(255,59,59,.12)';
+  c.fill();
+}
+
+function setBar(key, load, value, note) {
+  const pct = Math.max(0, Math.min(100, Number(load) || 0));
+  const bar = $('bar' + key);
+  if (bar) bar.style.width = pct.toFixed(0) + '%';
+  const v = $('val' + key);
+  if (v) v.textContent = value;
+  if (note !== undefined) {
+    const n = $('note' + key);
+    if (n) n.textContent = note;
+  }
+}
+
+async function refreshMetrics() {
+  try {
+    const m = await api.metrics();
+    setBar('Cpu', m.cpu.load, Math.round(m.cpu.load) + ' %', (m.cpu.cores || 0) + ' 线程');
+    pushHist('Cpu', m.cpu.load);
+    drawSpark('Cpu');
+    if (m.gpu && m.gpu.load != null) {
+      const mem = m.gpu.totalMiB
+        ? ` ${(m.gpu.usedMiB / 1024).toFixed(1)} / ${(m.gpu.totalMiB / 1024).toFixed(1)} GB`
+        : '';
+      setBar('Gpu', m.gpu.load, Math.round(m.gpu.load) + ' %', (m.gpu.name || 'GPU') + ' ·' + mem);
+      pushHist('Gpu', m.gpu.load);
+    } else if (m.gpu) {
+      setBar('Gpu', 0, '—', (m.gpu.name || 'GPU') + ' · 占用暂不可读');
+      pushHist('Gpu', 0);
+    } else {
+      setBar('Gpu', 0, '不可用', '未检测到可用的 GPU 监控接口');
+      pushHist('Gpu', 0);
+    }
+    drawSpark('Gpu');
+    setBar('Ram', m.ram.load, Math.round(m.ram.load) + ' %', `${fmtBytes(m.ram.used)} / ${fmtBytes(m.ram.total)}`);
+    pushHist('Ram', m.ram.load);
+    drawSpark('Ram');
+  } catch (e) {
+    setBar('Cpu', 0, '—', '');
+  }
+}
+
+function startMonitor() {
+  refreshMetrics();
+  if (monTimer == null) monTimer = setInterval(() => {
+    if (!document.hidden) refreshMetrics();
+  }, 2000);
+}
+
+function stopMonitor() {
+  if (monTimer != null) clearInterval(monTimer);
+  monTimer = null;
+}
+
 // ---------- 磁盘可用空间 ----------
 
 async function refreshFree() {
+  let text = '—';
   try {
     const n = await api.diskFree();
-    $('freeSpace').textContent = n == null ? '—' : fmtBytes(n);
+    text = n == null ? '—' : fmtBytes(n);
+  } catch (e) { /* 保持占位符 */ }
+  $('freeSpace').textContent = text;
+  const s = $('statFree');
+  if (s) s.textContent = text;
+}
+
+// ---------- 内存一键释放 ----------
+
+async function doMemTrim() {
+  if (state.busy) return;
+  const yes = await confirmDialog({
+    title: '内存一键释放',
+    desc: '只把后台进程占用的工作集交还给系统，不结束任何进程。关键系统进程、本软件、以及正在前台全屏运行的程序（游戏）都会自动跳过。被整理过的程序下次使用时可能短暂卡顿（数据要从磁盘读回）。',
+    items: [],
+    requireAck: false,
+    okText: '确认释放',
+    okClass: 'primary',
+  });
+  if (!yes) return;
+  setBusy(true, '正在释放内存…');
+  try {
+    const r = await api.memTrim(true);
+    if (r && r.ok) {
+      status(`已整理 ${r.trimmed} 个进程 · 工作集 ${Math.round(r.beforeMB)} MB → ${Math.round(r.afterMB)} MB（跳过 ${r.skipped} 个）`, 'ok');
+      await refreshMetrics();
+    } else {
+      status('内存释放失败：' + ((r && r.message) || '未知错误'), 'err');
+    }
   } catch (e) {
-    $('freeSpace').textContent = '—';
+    status('内存释放失败：' + (e && e.message ? e.message : String(e)), 'err');
+  } finally {
+    setBusy(false);
   }
 }
 
 // ---------- 初始化 ----------
 
 async function init() {
+  if (window.i18n) await window.i18n.init(api);
+  await window.eula.ensure(api);
+
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+  document.querySelectorAll('.qcard').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.goto)));
+
+  $('homeOneKey').addEventListener('click', () => {
+    state.selected.clear();
+    for (const t of state.targets) {
+      if (t.group === 'disk' && t.defaultChecked && t.level === 'safe') state.selected.add(t.id);
+    }
+    renderTargets('disk');
+    refreshButtons();
+    doClean('disk');
+  });
+  $('homeManual').addEventListener('click', () => switchTab('disk'));
+  $('memTrim').addEventListener('click', doMemTrim);
+  $('winMin').addEventListener('click', () => api.winMinimize());
+  $('winClose').addEventListener('click', () => api.winClose());
 
   $('diskScan').addEventListener('click', () => doScan('disk'));
   $('diskClean').addEventListener('click', () => doClean('disk'));
@@ -803,6 +971,48 @@ async function init() {
   refreshButtons();
   await refreshFree();
   await refreshBrowserBanner();
+  startMonitor();
+  initSettings();
+  if (window.tiers) await window.tiers.ensureLoaded();
+}
+
+// ---------- 软件设置 ----------
+
+async function initSettings() {
+  const modal = $('settingsModal');
+  let s = {};
+  try { s = (await api.settingsGet()) || {}; } catch (e) { /* 读不到就用默认值 */ }
+
+  if (window.bgFx) window.bgFx.setEnabled(s.fx !== false);
+  $('setFx').checked = s.fx !== false;
+  $('setAutoUpdate').checked = s.autoUpdate !== false;
+  $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
+
+  $('openSettings').addEventListener('click', () => {
+    $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
+    modal.classList.remove('hidden');
+  });
+  $('settingsClose').addEventListener('click', () => modal.classList.add('hidden'));
+
+  $('setLang').addEventListener('change', async () => {
+    const v = $('setLang').value;
+    if (window.i18n) await window.i18n.setLang(v, api);
+    const sel = $('langSel');
+    if (sel) sel.value = v;
+  });
+  $('setFx').addEventListener('change', async () => {
+    const on = $('setFx').checked;
+    if (window.bgFx) window.bgFx.setEnabled(on);
+    await api.settingsSet({ fx: on });
+  });
+  $('setAutoUpdate').addEventListener('change', async () => {
+    await api.settingsSet({ autoUpdate: $('setAutoUpdate').checked });
+  });
+
+  try {
+    const v = await api.appVersion();
+    if (v) $('setVersion').textContent = 'v' + v;
+  } catch (e) { /* 版本号显示失败留空 */ }
 }
 
 init().catch((e) => status('初始化失败: ' + (e && e.message ? e.message : e), 'err'));

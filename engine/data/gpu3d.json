@@ -1,0 +1,461 @@
+{
+  "ver": 3,
+  "settings": {
+    "0x2072C5A3": {
+      "zh": "OpenGL GDI 兼容性",
+      "en": "OpenGL GDI Compatibility"
+    },
+    "0x20D690F8": {
+      "zh": "Vulkan/OpenGL 现行方法",
+      "en": "Vulkan/OpenGL Present Method"
+    },
+    "0x20C1221E": {
+      "zh": "线程优化",
+      "en": "Threaded Optimization"
+    },
+    "0x20FDD1F9": {
+      "zh": "三重缓冲",
+      "en": "Triple Buffering"
+    },
+    "0x107D639D": {
+      "zh": "抗锯齿 - 灰度校正",
+      "en": "Antialiasing - Gamma Correction"
+    },
+    "0x10D773D2": {
+      "zh": "抗锯齿 - 设置",
+      "en": "Antialiasing - Setting"
+    },
+    "0x107EFC5B": {
+      "zh": "抗锯齿 - 模式",
+      "en": "Antialiasing - Mode"
+    },
+    "0x1057EB71": {
+      "zh": "电源管理模式",
+      "en": "Power Management Mode"
+    },
+    "0x10111133": {
+      "zh": "虚拟现实预渲染帧数",
+      "en": "Virtual Reality Pre-Rendered Frames"
+    },
+    "0x11AE435C": {
+      "zh": "立体 - 交换左右眼",
+      "en": "Stereo - Swap Eyes"
+    },
+    "0x11E91A61": {
+      "zh": "立体 - 显示模式",
+      "en": "Stereo - Display Mode"
+    },
+    "0x11AA9E99": {
+      "zh": "立体 - 启用",
+      "en": "Stereo - Enable"
+    },
+    "0x11333333": {
+      "zh": "立体 – 交换模式",
+      "en": "Stereo – Swap Mode"
+    },
+    "0x00198FFF": {
+      "zh": "着色器缓存",
+      "en": "Shader Cache"
+    },
+    "0x00E73211": {
+      "zh": "纹理过滤 - 各向异性采样优化",
+      "en": "Texture Filtering - Anisotropic Sample Optimization"
+    },
+    "0x002ECAF2": {
+      "zh": "纹理过滤 - 三线性优化",
+      "en": "Texture Filtering - Trilinear Optimization"
+    },
+    "0x0019BB68": {
+      "zh": "纹理过滤 - 负 LOD 偏移",
+      "en": "Texture Filtering - Negative LOD Bias"
+    },
+    "0x00CE2691": {
+      "zh": "纹理过滤 - 质量",
+      "en": "Texture Filtering - Quality"
+    },
+    "0x00A879CF": {
+      "zh": "垂直同步",
+      "en": "Vertical Sync"
+    },
+    "0x007BA09E": {
+      "zh": "最大预渲染帧数",
+      "en": "Max pre-rendered frames"
+    },
+    "0x1083EFFE": {
+      "zh": "低延迟模式",
+      "en": "Low Latency Mode"
+    },
+    "0x101E61A9": {
+      "zh": "各向异性过滤",
+      "en": "Anisotropic Filtering"
+    },
+    "0x0064B541": {
+      "zh": "首选刷新率",
+      "en": "Preferred Refresh Rate"
+    },
+    "0x209AE66F": {
+      "zh": "导出的像素类型",
+      "en": "Exported Pixel Types"
+    },
+    "0x206C28C4": {
+      "zh": "OpenGL 覆盖",
+      "en": "OpenGL Overlay"
+    },
+    "0x1074C972": {
+      "zh": "抗锯齿 - FXAA",
+      "en": "Antialiasing - FXAA"
+    }
+  },
+  "values": {
+    "0x1057EB71": {
+      "0x00000005": {
+        "zh": "最佳功率",
+        "en": "Optimal power"
+      },
+      "0x00000000": {
+        "zh": "自适应",
+        "en": "Adaptive"
+      },
+      "0x00000003": {
+        "zh": "偏重稳定的性能",
+        "en": "Prefer consistent performance"
+      },
+      "0x00000001": {
+        "zh": "最高性能优先",
+        "en": "Prefer maximum performance"
+      },
+      "0x00000004": {
+        "zh": "节能",
+        "en": "Power saving"
+      }
+    },
+    "0x1083EFFE": {
+      "0x00000002": {
+        "zh": "超高",
+        "en": "Ultra"
+      },
+      "0x00000001": {
+        "zh": "开",
+        "en": "On"
+      },
+      "0x00000000": {
+        "zh": "关",
+        "en": "Off"
+      }
+    },
+    "0x00A879CF": {
+      "0x08416747": {
+        "zh": "关",
+        "en": "Off"
+      },
+      "0x47814940": {
+        "zh": "开",
+        "en": "On"
+      },
+      "0x60925292": {
+        "zh": "使用 3D 应用程序设置",
+        "en": "Use the 3D application setting"
+      },
+      "0x32610244": {
+        "zh": "开：1/2 刷新率",
+        "en": "On: half the refresh rate"
+      },
+      "0x71271021": {
+        "zh": "开：1/3 刷新率",
+        "en": "On: 1/3 the refresh rate"
+      },
+      "0x13245256": {
+        "zh": "开：1/4 刷新率",
+        "en": "On: 1/4 the refresh rate"
+      }
+    },
+    "0x007BA09E": {
+      "0x00000000": {
+        "zh": "使用 3D 应用程序设置",
+        "en": "Use the 3D application setting"
+      },
+      "0x00000001": {
+        "zh": "1",
+        "en": "1"
+      },
+      "0x00000002": {
+        "zh": "2",
+        "en": "2"
+      },
+      "0x00000003": {
+        "zh": "3",
+        "en": "3"
+      },
+      "0x00000004": {
+        "zh": "4",
+        "en": "4"
+      },
+      "0x00000005": {
+        "zh": "5",
+        "en": "5"
+      },
+      "0x00000006": {
+        "zh": "6",
+        "en": "6"
+      }
+    },
+    "0x00CE2691": {
+      "0x00000014": {
+        "zh": "高性能",
+        "en": "High performance"
+      },
+      "0x0000000A": {
+        "zh": "性能",
+        "en": "Performance"
+      },
+      "0x00000000": {
+        "zh": "质量",
+        "en": "Quality"
+      },
+      "0xFFFFFFF6": {
+        "zh": "高质量",
+        "en": "High quality"
+      }
+    },
+    "0x20C1221E": {
+      "0x00000000": {
+        "zh": "自动",
+        "en": "Auto"
+      },
+      "0x00000001": {
+        "zh": "开",
+        "en": "On"
+      },
+      "0x00000002": {
+        "zh": "关",
+        "en": "Off"
+      }
+    },
+    "0x107EFC5B": {
+      "0x00000000": {
+        "zh": "覆盖任何应用程序设置",
+        "en": "Override any application setting"
+      },
+      "0x00000001": {
+        "zh": "由应用程序控制",
+        "en": "Application-controlled"
+      },
+      "0x00000002": {
+        "zh": "增强应用程序设置",
+        "en": "Enhance the application setting"
+      },
+      "0x00000003": {
+        "zh": "关",
+        "en": "Off"
+      }
+    },
+    "0x10D773D2": {
+      "0x00000000": {
+        "zh": "无",
+        "en": "None"
+      },
+      "0x0000000E": {
+        "zh": "2x (2xMS)",
+        "en": "2x (2xMS)"
+      },
+      "0x00000010": {
+        "zh": "4x (4xMS)",
+        "en": "4x (4xMS)"
+      },
+      "0x00000018": {
+        "zh": "8x (4xSS, 2xMS)",
+        "en": "8x (4xSS, 2xMS)"
+      },
+      "0x00000019": {
+        "zh": "8x (8xMS)",
+        "en": "8x (8xMS)"
+      },
+      "0x0000001A": {
+        "zh": "16x (4xSS, 4xMS)",
+        "en": "16x (4xSS, 4xMS)"
+      },
+      "0x00000029": {
+        "zh": "32x (4xSS, 8xMS)",
+        "en": "32x (4xSS, 8xMS)"
+      },
+      "0x0000002A": {
+        "zh": "64x (16xSS, 4xMS)",
+        "en": "64x (16xSS, 4xMS)"
+      },
+      "0x0000002B": {
+        "zh": "128x (16xSS, 8xMS)",
+        "en": "128x (16xSS, 8xMS)"
+      },
+      "0x00100000": {
+        "zh": "由应用程序控制",
+        "en": "Application-controlled"
+      }
+    },
+    "0x101E61A9": {
+      "0x00100000": {
+        "zh": "应用程序控制的",
+        "en": "Application-controlled"
+      },
+      "0x00000001": {
+        "zh": "关",
+        "en": "Off"
+      },
+      "0x00000002": {
+        "zh": "2x",
+        "en": "2x"
+      },
+      "0x00000004": {
+        "zh": "4x",
+        "en": "4x"
+      },
+      "0x00000008": {
+        "zh": "8x",
+        "en": "8x"
+      },
+      "0x00000010": {
+        "zh": "16x",
+        "en": "16x"
+      }
+    },
+    "0x20D690F8": {
+      "0x00000000": {
+        "zh": "优先本机",
+        "en": "Prefer native"
+      },
+      "0x00000001": {
+        "zh": "优先在 DXGI 交换链上分层",
+        "en": "Prefer layered on DXGI swap chain"
+      },
+      "0x00000002": {
+        "zh": "自动",
+        "en": "Auto"
+      }
+    },
+    "0x2072C5A3": {
+      "0x00000000": {
+        "zh": "优先性能",
+        "en": "Prefer performance"
+      },
+      "0x00000001": {
+        "zh": "优先兼容性",
+        "en": "Prefer compatibility"
+      },
+      "0x00000002": {
+        "zh": "自动",
+        "en": "Auto"
+      }
+    },
+    "0x206C28C4": {
+      "0x00000000": {
+        "zh": "关",
+        "en": "Off"
+      },
+      "0x00000001": {
+        "zh": "开",
+        "en": "On"
+      }
+    },
+    "0x209AE66F": {
+      "0x00000000": {
+        "zh": "无",
+        "en": "None"
+      },
+      "0x00000001": {
+        "zh": "颜色索引覆盖 (8 bpp)",
+        "en": "Color indexed overlays (8 bpp)"
+      },
+      "0x00000002": {
+        "zh": "RGB 覆盖（RGB555 格式）",
+        "en": "RGB overlays (RGB555 format)"
+      },
+      "0x00000003": {
+        "zh": "颜色索引 (8 bpp) 和 RGB555 格式",
+        "en": "Color indexed (8 bpp) and RGB555 format"
+      }
+    },
+    "0x11333333": {
+      "0x00000000": {
+        "zh": "应用程序控制的",
+        "en": "Application-controlled"
+      },
+      "0x00000001": {
+        "zh": "每只眼睛",
+        "en": "Per eye"
+      },
+      "0x00000002": {
+        "zh": "每双眼睛",
+        "en": "Per eye pair"
+      }
+    },
+    "0x0064B541": {
+      "0x00000000": {
+        "zh": "使用 3D 应用程序设置",
+        "en": "Use the 3D application setting"
+      },
+      "0x00000001": {
+        "zh": "最高可用",
+        "en": "Highest available"
+      }
+    },
+    "0x20FDD1F9": {
+      "0x00000000": {
+        "zh": "关",
+        "en": "Off"
+      },
+      "0x00000001": {
+        "zh": "开",
+        "en": "On"
+      }
+    },
+    "0x0019BB68": {
+      "0x00000000": {
+        "zh": "允许",
+        "en": "Allow"
+      },
+      "0x00000001": {
+        "zh": "锁定",
+        "en": "Clamp"
+      }
+    },
+    "0x002ECAF2": {
+      "0x00000000": {
+        "zh": "开",
+        "en": "On"
+      },
+      "0x00000001": {
+        "zh": "关",
+        "en": "Off"
+      }
+    },
+    "0x00E73211": {
+      "0x00000000": {
+        "zh": "开",
+        "en": "On"
+      },
+      "0x00000001": {
+        "zh": "关",
+        "en": "Off"
+      }
+    },
+    "0x107D639D": {
+      "0x00000000": {
+        "zh": "关",
+        "en": "Off"
+      },
+      "0x00000001": {
+        "zh": "开",
+        "en": "On"
+      }
+    },
+    "0x1074C972": {
+      "0x00000000": {
+        "zh": "关",
+        "en": "Off"
+      },
+      "0x00000001": {
+        "zh": "开",
+        "en": "On"
+      }
+    }
+  }
+}

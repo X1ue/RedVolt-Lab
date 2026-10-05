@@ -10,7 +10,7 @@ const path = require('path');
 Object.defineProperty(app, 'isPackaged', { get: () => true });
 
 const VERSION = '99.9.9';
-const NAME = `SysOptimizer-Setup-${VERSION}.exe`;
+const NAME = `RedVolt-Lab-Setup-${VERSION}.exe`;
 const BLOB = crypto.randomBytes(2 * 1024 * 1024);
 const SHA = crypto.createHash('sha512').update(BLOB).digest('base64');
 const YML = [
@@ -63,7 +63,7 @@ function finish(code) {
   }
   // 清理 electron-updater 的下载缓存目录
   const local = process.env.LOCALAPPDATA || '';
-  for (const name of ['sys-optimizer-updater', `${app.getName()}-updater`]) {
+  for (const name of [`${require('./package.json').name}-updater`, 'sys-optimizer-updater', `${app.getName()}-updater`]) {
     if (!local) break;
     const cache = path.join(local, name);
     try { fs.rmSync(cache, { recursive: true, force: true }); log('已清理下载缓存: ' + cache); } catch (e) { log('清理缓存目录失败: ' + e.message); }
@@ -85,7 +85,7 @@ server.listen(0, '127.0.0.1', () => {
   cfgPath = path.join(process.resourcesPath, 'app-update.yml');
   wroteConfig = !fs.existsSync(cfgPath);
   if (wroteConfig) {
-    fs.writeFileSync(cfgPath, `provider: generic\nurl: ${process.env.SYSOPT_FEED_URL}\nupdaterCacheDirName: sys-optimizer-updater\n`, 'utf8');
+    fs.writeFileSync(cfgPath, `provider: generic\nurl: ${process.env.SYSOPT_FEED_URL}\nupdaterCacheDirName: ${require('./package.json').name}-updater\n`, 'utf8');
     log('已写入临时 app-update.yml: ' + cfgPath);
   }
 
@@ -114,7 +114,7 @@ async function probe(win) {
   const vis = async (id) => ev(`!document.getElementById(${JSON.stringify(id)}).classList.contains("hidden")`);
 
   await new Promise((r) => setTimeout(r, 2500));
-  await ev(`document.querySelector('#tabs button[data-tab="update"]').click(); 1`);
+  await ev(`document.querySelector('button[data-tab="update"]').click(); 1`);
   await new Promise((r) => setTimeout(r, 300));
   log('panel=' + (await ev('document.querySelector(".panel.active").id')));
   log('初始状态: ' + JSON.stringify(await txt('updateState')));
@@ -163,7 +163,7 @@ async function probe(win) {
 
   // 校验真正落盘的更新包与假包字节一致
   const local = process.env.LOCALAPPDATA || '';
-  for (const name of ['sys-optimizer-updater', `${app.getName()}-updater`]) {
+  for (const name of [`${require('./package.json').name}-updater`, 'sys-optimizer-updater', `${app.getName()}-updater`]) {
     const pending = path.join(local, name, 'pending');
     if (!fs.existsSync(pending)) continue;
     for (const f of fs.readdirSync(pending)) {
