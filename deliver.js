@@ -13,8 +13,10 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const SRC = process.argv[2] || path.join(__dirname, 'dist');
-const DST = process.argv[3] || path.join(os.homedir(), 'Desktop', 'RedVolt Lab');
+const ARGS = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const DRY = process.argv.includes('--dry');
+const SRC = ARGS[0] || path.join(__dirname, 'dist');
+const DST = ARGS[1] || path.join(os.homedir(), 'Desktop', 'RedVolt Lab');
 
 const yml = fs.readFileSync(path.join(SRC, 'latest.yml'), 'utf8');
 const version = yml.match(/version:\s*(\S+)/)[1];
@@ -26,6 +28,31 @@ if (/-/.test(version)) {
 }
 
 const sha512 = (b) => crypto.createHash('sha512').update(b).digest('base64');
+
+// 交付目录里的旧产物识别：只认本应用的文件名，且只删「比当前版本更旧」的，新版号绝不误删。
+const ARTIFACT = /^(\._cache_)?(RedVolt[- _]Lab|SysOptimizer|系统优化助手)/i;
+const fileVersion = (f) => {
+  const m = f.match(/[- ](\d+\.\d+\.\d+(?:-(?:test|alpha|beta|rc)\.\d+)?)\.(?:exe(?:\.blockmap)?|blockmap)$/i);
+  return m ? m[1] : null;
+};
+const vkey = (v) => {
+  const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(?:-(?:\w+)\.(\d+))?$/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] ? 0 : 1, m[4] ? Number(m[4]) : 0];
+};
+const isOlder = (a, b) => {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+};
+const staleFiles = (dir, cur) => {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => {
+    if (!ARTIFACT.test(f)) return false;
+    const v = fileVersion(f);
+    const key = v && vkey(v);
+    return !!key && !!cur && isOlder(key, cur);
+  });
+};
 
 function put(name) {
   const from = path.join(SRC, name);
@@ -39,17 +66,28 @@ function put(name) {
   return ok;
 }
 
+// --dry：只打印将要复制和将要删除的内容，不碰任何文件
+if (DRY) {
+  const cur = vkey(version);
+  const missing = [setup, portable].filter((n) => !fs.existsSync(path.join(SRC, n)));
+  const stale = staleFiles(DST, cur);
+  console.log(`DRY RUN 版本 ${version}`);
+  console.log(`源 ${SRC}：${missing.length ? '缺少 ' + missing.join(', ') : 'Setup + 便携版齐全'}`);
+  console.log(`目标 ${DST}`);
+  for (const f of stale) console.log('  将删除', f);
+  if (!stale.length) console.log('  无旧版本需要删除');
+  process.exit(missing.length ? 1 : 0);
+}
+
 if (!fs.existsSync(DST)) fs.mkdirSync(DST, { recursive: true });
 const ok = put(setup) && put(portable);
 fs.writeFileSync(path.join(DST, 'latest.yml'), fs.readFileSync(path.join(SRC, 'latest.yml')));
-for (const f of fs.readdirSync(DST)) {
-  if (/^(\._cache_|RedVolt-Lab-|RedVolt Lab |系统优化助手 |SysOptimizer-Setup-).*1\.0\.2-test\.\d+/.test(f) && !f.includes(version)) {
-    try {
-      fs.unlinkSync(path.join(DST, f));
-      console.log('removed', f);
-    } catch (e) {
-      console.log('kept (locked, 正在运行?)', f);
-    }
+for (const f of staleFiles(DST, vkey(version))) {
+  try {
+    fs.unlinkSync(path.join(DST, f));
+    console.log('removed', f);
+  } catch (e) {
+    console.log('kept (locked, 正在运行?)', f);
   }
 }
 console.log('desktop:', fs.readdirSync(DST).join(' | '));
