@@ -49,6 +49,15 @@ let wakingPending = false;           // 这次窗口是不是唤醒重建的，�
 
 app.setAppUserModelId('com.local.sysoptimizer');
 
+// 锁按 userData 目录算：便携版和安装版共用 %AppData%\RedVolt Lab，所以两者互斥，只能开一个。
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  app.quit();
+} else {
+  // 再点图标 = 把人叫回前台而不是再起一份：休眠中重建窗口，醒着就露脸聚焦。
+  app.on('second-instance', () => { showFromTray(); });
+}
+
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
@@ -883,6 +892,8 @@ ipcMain.on('win:ready', () => {
 // ==================== 生命周期 ====================
 
 app.whenReady().then(() => {
+  // app.quit() 在 ready 之前调用不保证拦得住 whenReady，这里兜住：没锁就不建窗、不初始化任何模块
+  if (!gotSingleLock) return;
   const migrated = migrate.run();
   const userData = app.getPath('userData');
   admin.init(userData);
