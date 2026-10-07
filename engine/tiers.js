@@ -197,14 +197,22 @@ async function preview(key) {
   return out;
 }
 
-/** 执行一档：先存快照（只在第一次存，保证「还原」回到最初状态），再依次改电源 / 系统开关 / N 卡 */
-async function apply(key, confirmed) {
+/**
+ * 执行一档：先存快照（只在第一次存，保证「还原」回到最初状态），再依次改电源 / 系统开关 / N 卡。
+ * opts.skipPower 用于体检里的「重新应用被改回的项」：那里只列了开关和 N 卡，
+ * 电源计划不在检测范围，就绝不能被顺手改掉。
+ */
+async function apply(key, confirmed, opts) {
+  const o = opts || {};
   if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
   const T = TIERS[key];
   if (!T) return { ok: false, message: '未知档位：' + String(key || '') };
   const p = await preview(key);
   if (!p.ok) return p;
-  if (!p.changes) return { ok: true, unchanged: true, preview: p };
+  const pending = (o.skipPower || !p.power ? 0 : (p.power.status === 'change' ? 1 : 0))
+    + (p.game || []).filter((g) => g.status === 'change').length
+    + (p.gpu || []).filter((g) => g.status === 'change').length;
+  if (!pending) return { ok: true, unchanged: true, preview: p };
 
   if (!readSnap()) {
     const gr = await game.readRaw().catch(() => ({ ok: false }));
@@ -239,7 +247,7 @@ async function apply(key, confirmed) {
 
   const result = { ok: true, tier: key, power: null, game: null, gpu: null, errors: [] };
 
-  if (p.power && p.power.status === 'change') {
+  if (!o.skipPower && p.power && p.power.status === 'change') {
     const r = await power.apply(T.power, true);
     result.power = { ok: !!r.ok, unchanged: !!r.unchanged, message: r.message || '' };
     if (!r.ok) result.errors.push('power: ' + r.message);

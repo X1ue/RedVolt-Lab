@@ -15,6 +15,7 @@ const state = {
   wsAdvice: null,
   drvGroups: null,
   drvPicked: new Set(),
+  health: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1454,34 +1455,103 @@ async function doCreateRestorePoint() {
 }
 
 // ---------- 只读体检报告 ----------
+// 主进程只给「判定 + 数据」，中文/英文措辞全部来自 renderer/health-text.js，所以这里按当前语言渲染。
 
-const SEV_LABEL = { risk: '风险', warn: '建议处理', info: '供参考', good: '正常' };
+function healthLang() {
+  return window.i18n && window.i18n.lang === 'en' ? 'en' : 'zh';
+}
+
+function healthMsg(r) {
+  if (!r) return '';
+  const HT = window.healthText;
+  const copy = r.messageKey && HT ? HT.msg(r.messageKey, healthLang()) : '';
+  if (!r.message) return copy;
+  return copy ? copy + '：' + r.message : String(r.message);
+}
 
 function renderHealth(r) {
+  state.health = r && r.ok ? r : null;
   const host = $('healthBody');
   host.textContent = '';
   if (!r || !r.ok || !Array.isArray(r.findings)) {
-    host.appendChild(el('div', 'health-idle', (r && r.message) || '体检失败，没有拿到结果'));
+    host.appendChild(el('div', 'health-idle', healthMsg(r) || '体检失败，没有拿到结果'));
     $('healthCounts').textContent = '';
     $('healthExport').classList.add('hidden');
     return;
   }
-  const c = r.counts || {};
-  $('healthCounts').textContent = `${r.quick ? '快速' : '深度'} · 风险 ${c.risk || 0} · 建议处理 ${c.warn || 0} · 供参考 ${c.info || 0} · 正常 ${c.good || 0}`;
+  const HT = window.healthText;
+  const lang = healthLang();
+  $('healthCounts').textContent = HT ? HT.summaryLine(r, lang) : JSON.stringify(r.counts);
   $('healthExport').classList.remove('hidden');
-  if (r.message) host.appendChild(el('div', 'health-idle', r.message));
+  const note = healthMsg(r);
+  if (note) host.appendChild(el('div', 'health-idle', note));
   for (const x of r.findings) {
+    const t = HT ? HT.fmt(x, lang) : { title: x.titleKey, detail: '', tip: '', group: x.group, sev: x.severity };
     const box = el('div', 'finding ' + (x.severity || 'info'));
     const head = el('div', 'fhead');
-    head.appendChild(el('span', 'fsev', SEV_LABEL[x.severity] || String(x.severity || '')));
-    head.appendChild(el('span', 'ftitle', x.title));
-    head.appendChild(el('span', 'fgroup', x.group || ''));
+    head.appendChild(el('span', 'fsev', t.sev || String(x.severity || '')));
+    head.appendChild(el('span', 'ftitle', t.title));
+    head.appendChild(el('span', 'fgroup', t.group || ''));
     box.appendChild(head);
-    if (x.detail) box.appendChild(el('div', 'fdetail', x.detail));
-    if (x.tip) box.appendChild(el('div', 'ftip', '建议：' + x.tip));
+    if (t.detail) box.appendChild(el('div', 'fdetail', t.detail));
+    if (t.tip) box.appendChild(el('div', 'ftip', (HT ? HT.msg('tipPrefix', lang) : '建议：') + t.tip));
+    if (x.action && x.action.kind === 'tierReapply') box.appendChild(driftAction(x, lang));
     host.appendChild(box);
   }
 }
+
+// 漂移条目的动作按钮：只在本软件确实优化过、且确实有项被改回去时才出现
+function driftAction(x, lang) {
+  const HT = window.healthText;
+  const n = ((x.params || {}).game || []).length + ((x.params || {}).gpu || []).length;
+  const box = el('div', 'faction');
+  const btn = el('button', 'btn primary');
+  btn.type = 'button';
+  btn.textContent = HT ? HT.msg('driftReapply', lang, { count: n }) : 'Re-apply';
+  btn.addEventListener('click', () => reapplyDrift(x, btn));
+  box.appendChild(btn);
+  return box;
+}
+
+async function reapplyDrift(x, btn) {
+  if (state.busy) return;
+  const HT = window.healthText;
+  const lang = healthLang();
+  const p = x.params || {};
+  const n = (p.game || []).length + (p.gpu || []).length;
+  const copy = (k, params) => (HT ? HT.msg(k, lang, params) : '');
+  const ok = await confirmDialog({
+    title: copy('driftConfirmTitle') || '把这些设置改回优化时的状态？',
+    desc: copy('driftConfirmDesc', { count: n }),
+    items: HT ? HT.driftRows(p, lang).map((r) => ({ name: r.text })) : [],
+    okText: copy('driftConfirmOk'),
+    okClass: 'primary',
+  });
+  if (!ok) return;
+  const colon = lang === 'zh' ? '：' : ': ';
+  btn.disabled = true;
+  setBusy(true, copy('reapplyStart'));
+  try {
+    // skipPower：漂移清单里没有电源计划，重新应用时就一律不碰它
+    const r = await api.tiersApply((x.action || {}).tier, true, { skipPower: true });
+    if (!r || !r.ok) {
+      status((copy('reapplyFail') || '重新应用失败') + colon + healthMsg(r), 'err');
+      return;
+    }
+    if (r.unchanged) status(copy('reapplyUnchanged'), 'ok');
+    else status(copy('reapplyDone', { count: n }), 'ok');
+    const again = await api.healthQuick();
+    renderHealth(again);
+  } catch (e) {
+    status((copy('reapplyFail') || '重新应用失败') + colon + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+    btn.disabled = false;
+  }
+}
+
+// 切语言时重画一次：体检条目是模板生成的，不走 DOM 字典
+window.healthView = { render: () => { if (state.health) renderHealth(state.health); } };
 
 async function runHealth(deep) {
   if (state.busy) return;
@@ -1512,9 +1582,10 @@ function openHealth() {
 
 async function doHealthExport() {
   if (state.busy) return;
+  if (!state.health || !window.healthText) { status('还没有体检结果，请先跑一次体检', 'err'); return; }
   setBusy(true, '正在导出体检报告…');
   try {
-    const r = await api.healthExport();
+    const r = await api.healthExport(window.healthText.toText(state.health, healthLang()));
     if (r && r.ok) status('已保存到 ' + r.path, 'ok');
     else if (r && r.canceled) status('已取消保存');
     else status('导出失败：' + ((r && r.message) || '未知错误'), 'err');
@@ -1594,7 +1665,10 @@ async function init() {
   $('healthExport').addEventListener('click', doHealthExport);
   $('healthClose').addEventListener('click', () => $('healthModal').classList.add('hidden'));
   api.onHealthProgress((p) => {
-    if (p && p.message) $('healthCounts').textContent = p.message;
+    const HT = window.healthText;
+    if (!p || !HT) return;
+    const k = p.messageKey || p.phase;
+    if (k && HT.MSG[k]) $('healthCounts').textContent = HT.msg(k, healthLang());
   });
   api.onRestorePointState((s) => {
     if (!s) return;

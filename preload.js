@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld('optimizer', {
 
   tiersInfo: () => invoke('tiers:info'),
   tiersPreview: (key) => invoke('tiers:preview', key),
-  tiersApply: (key, confirmed) => invoke('tiers:apply', key, confirmed),
+  tiersApply: (key, confirmed, opts) => invoke('tiers:apply', key, confirmed, opts),
   tiersRestore: (confirmed) => invoke('tiers:restore', confirmed),
 
   memTrim: (confirmed) => invoke('mem:trim', confirmed),
@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('optimizer', {
 
   healthQuick: () => invoke('health:quick'),
   healthDeep: () => invoke('health:deep'),
-  healthExport: () => invoke('health:export'),
+  healthExport: (text) => invoke('health:export', text),
 
   restorePointStatus: (force) => invoke('restorepoint:status', force),
   restorePointCreate: (confirmed) => invoke('restorepoint:create', confirmed),

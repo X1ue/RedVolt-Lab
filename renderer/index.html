@@ -54,6 +54,7 @@
       <div class="hero">
         <h2 class="hero-title">极致的性能强化</h2>
         <p class="hero-sub">实时掌握 CPU / GPU / 内存占用。清理一律先只读扫描预览，逐项复查安全规则，你确认后才执行删除。</p>
+        <p class="hero-promise">无自启 · 无遥测 · 无广告 ｜ 每一步都能撤销 ｜ 效果能量化</p>
         <div class="hero-actions">
           <button id="homeOneKey" class="btn primary big">一键清理</button>
           <button id="homeManual" class="btn ghost big">手动选择</button>
@@ -403,6 +404,17 @@
         <button id="setCloseReset" class="btn ghost small hidden">重新询问</button>
       </span>
     </div>
+    <div class="set-promise">
+      <h3>本软件的承诺</h3>
+      <ul>
+        <li>不注册计划任务、不写启动项、不留后台常驻进程。关掉窗口就是真的退出了。</li>
+        <li>唯一的联网动作是「检查更新」，它只读取 GitHub 上公开的版本号；上面可以关掉。除此之外不上传任何数据。</li>
+        <li>没有广告、没有捆绑安装、没有「推荐软件」。</li>
+        <li>每一处改动都会在「记录与撤销」里记下改前的原值，可以单条还原；注册表与电源方案改动还会另存一份改前备份。</li>
+        <li>任何删除都先只读扫描，列出清单和体积，你确认后才动手。</li>
+        <li>优化前后的空闲内存、磁盘可用空间和 4K 随机读都在「性能基线」里实测对比，效果是数字不是感觉。</li>
+      </ul>
+    </div>
     <div class="set-row">
       <span>当前版本</span>
       <span id="setVersion" class="mono">—</span>
@@ -452,6 +464,7 @@
 
 <script src="fx.js"></script>
 <script src="i18n.js"></script>
+<script src="health-text.js"></script>
 <script src="dropdown.js"></script>
 <script src="eula.js"></script>
 <script src="app.js"></script>

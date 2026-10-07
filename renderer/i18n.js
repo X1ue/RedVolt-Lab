@@ -303,6 +303,7 @@
     '启动时自动检查更新': 'Check for updates on startup',
     '极致的性能强化': 'Ultimate Performance Boost',
     '实时掌握 CPU / GPU / 内存占用。清理一律先只读扫描预览，逐项复查安全规则，你确认后才执行删除。': 'Watch CPU / GPU / memory in real time. Cleanup always begins with a read-only scan preview, re-checks every safety rule per item, and deletes only after you confirm.',
+    '无自启 · 无遥测 · 无广告 ｜ 每一步都能撤销 ｜ 效果能量化': 'No autostart · no telemetry · no ads | Every step is undoable | Measurable results',
     '首页': 'Home',
     '开始清理': 'Start cleanup',
     '启动项管理': 'Startup manager',
@@ -401,12 +402,24 @@
     '建议处理': 'advised',
     '供参考': 'FYI',
     '体检失败，没有拿到结果': 'Health check failed; no result returned',
+    '还没有体检结果，请先跑一次体检': 'No health result yet — run a check first',
+    '窗口不可用': 'The window is not available',
+    '报告内容异常，已拒绝写入': 'The report content looks wrong, so writing was refused',
     '点上面的「快速体检」或「深度体检」开始。全程只读，不改任何设置、不删任何文件。': 'Click "Quick check" or "Deep check" above to start. Read-only throughout: no setting is changed and no file is deleted.',
     '体检只读取系统信息，不改任何设置、不删任何文件。快速体检用普通权限，几秒出结果；深度体检需要一次管理员授权（UAC），才能读到组件存储、TRIM、还原点、驱动库和启动诊断日志。': 'The health check only reads system information; it changes no setting and deletes no file. The quick check runs with normal rights and returns in seconds; the deep check needs one administrator prompt (UAC) to read the component store, TRIM, restore points, the driver store and the boot diagnostics log.',
 
     // ---------- 设置：还原点 ----------
     '应用一键优化前先建还原点': 'Create a restore point before one-click tuning',
     '还原点只是兜底：真正的撤销靠「记录与撤销」页里逐条记录的原值。Windows 限制 24 小时内只能建一个还原点，间隔内会自动复用已有的；建不成会把原因如实显示，不会假装已保护。': 'The restore point is only a safety net: real undo comes from the original values recorded per change on the "Changes & Undo" page. Windows allows one restore point per 24 hours, so an existing one is reused inside that window; if it cannot be created the reason is shown honestly instead of pretending you are protected.',
+
+    // ---------- 设置：本软件的承诺 ----------
+    '本软件的承诺': 'What this app promises',
+    '不注册计划任务、不写启动项、不留后台常驻进程。关掉窗口就是真的退出了。': 'No scheduled tasks, no startup entries, no background process. Closing the window really does quit the app.',
+    '唯一的联网动作是「检查更新」，它只读取 GitHub 上公开的版本号；上面可以关掉。除此之外不上传任何数据。': 'The only network action is "Check for updates", which reads the public version number on GitHub and can be switched off above. Nothing else is ever uploaded.',
+    '没有广告、没有捆绑安装、没有「推荐软件」。': 'No ads, no bundled installs, no "recommended software".',
+    '每一处改动都会在「记录与撤销」里记下改前的原值，可以单条还原；注册表与电源方案改动还会另存一份改前备份。': 'Every change records its original value on "Changes & Undo" and can be reverted one by one; registry and power-plan changes also keep a separate before-the-change backup.',
+    '任何删除都先只读扫描，列出清单和体积，你确认后才动手。': 'Anything to be deleted is scanned read-only first, listed with its size, and only removed after you confirm.',
+    '优化前后的空闲内存、磁盘可用空间和 4K 随机读都在「性能基线」里实测对比，效果是数字不是感觉。': 'Free memory, disk space and 4K random read are measured before and after tuning on the "Performance baseline" page — the result is a number, not a feeling.',
 
     // ---------- 系统级：组件存储 WinSxS ----------
     '组件存储 WinSxS': 'Component store (WinSxS)',
@@ -480,6 +493,7 @@
   // 带 ${} 插值的串，运行到界面时数字/路径已经替换进去了，只能按片段或正则处理
   const FRAG = {
     '扫描出错: ': 'Scan error: ',
+    '写入失败：': 'Write failed: ',
     '清理出错: ': 'Cleanup error: ',
     '操作失败: ': 'Operation failed: ',
     '统计失败: ': 'Size scan failed: ',
@@ -763,6 +777,7 @@
     if (window.power) window.power.render();
     if (window.game) window.game.render();
     if (window.tiers) window.tiers.render();
+    if (window.healthView) window.healthView.render();
     if (api && api.settingsSet) { try { await api.settingsSet({ lang: lang }); } catch (e) { /* 存不下也不影响本次显示 */ } }
     return lang;
   }

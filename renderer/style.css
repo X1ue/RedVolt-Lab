@@ -199,6 +199,18 @@ main { padding: 16px 20px 60px; overflow-y: auto; flex: 1; }
   text-shadow: 0 0 26px rgba(255, 59, 59, 0.22);
 }
 .hero-sub { margin: 8px 0 16px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.hero-promise {
+  margin: 0 0 16px;
+  padding: 6px 12px;
+  display: inline-block;
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: #ffd7d7;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
 .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .hero-stats { display: flex; gap: 34px; margin-top: 18px; }
@@ -578,6 +590,8 @@ header .dd, header .dd-btn { -webkit-app-region: no-drag; }
   justify-content: center;
   z-index: 100;
 }
+/* 确认框要从体检弹窗里再弹一层，DOM 顺序在后面的模态会盖住它，只能抬高 z-index */
+#modal { z-index: 130; }
 .modal-box {
   width: min(680px, 92vw);
   max-height: 86vh;
@@ -606,7 +620,7 @@ header .dd, header .dd-btn { -webkit-app-region: no-drag; }
 .ack input { accent-color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
-.settings-box { width: min(460px, 92vw); }
+.settings-box { width: min(520px, 92vw); }
 
 /* ---------- 首启免责声明 ---------- */
 
@@ -1063,4 +1077,16 @@ header .dd, header .dd-btn { -webkit-app-region: no-drag; }
   user-select: text;
 }
 .ftip { font-size: 12px; line-height: 1.6; margin-top: 5px; }
+.faction { margin-top: 9px; }
+.faction .btn { font-size: 12px; padding: 5px 12px; }
+.set-promise {
+  margin: 14px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.set-promise h3 { margin: 0 0 7px; font-size: 13px; color: var(--accent); }
+.set-promise ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.set-promise li { font-size: 12px; line-height: 1.65; color: #d8ccd0; }
 .set-note { margin: 2px 0 0; }

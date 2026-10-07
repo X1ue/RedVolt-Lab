@@ -10,6 +10,7 @@ const safety = require('./engine/safety');
 const clean = require('./engine/clean');
 const ledger = require('./engine/ledger');
 const health = require('./engine/health');
+const HT = require('./renderer/health-text');
 
 let pass = 0;
 let fail = 0;
@@ -163,7 +164,8 @@ const EDGE_UD = path.join(L, 'Microsoft', 'Edge', 'User Data');
   check('计数与条目一致', rep.counts.risk + rep.counts.warn + rep.counts.info + rep.counts.good === rep.findings.length, rep.counts);
   check('C 盘剩 2.5% 判为风险', ids.includes('disk-crit') && rep.findings.filter((x) => x.id === 'disk-crit')[0].severity === 'risk');
   check('C/D 同盘给出提示', ids.includes('same-disk'));
-  check('同盘提示用无冒号的盘符', /C 盘与 D 盘/.test(rep.findings.filter((x) => x.id === 'same-disk')[0].title), rep.findings.filter((x) => x.id === 'same-disk')[0].title);
+  const sd = rep.findings.filter((x) => x.id === 'same-disk')[0];
+  check('同盘提示用无冒号的盘符', JSON.stringify(sd.params.letters) === '["C","D"]' && /C 盘与 D 盘/.test(HT.fmt(sd, 'zh').title), sd.params.letters);
   // Get-PhysicalDisk 没有 DeviceNumber 属性，用错就会静默丢掉盘符映射（同盘提示再也出不来）
   check('体检脚本按 DeviceId 匹配分区', /DeviceId/.test(fs.readFileSync(path.join(__dirname, 'engine', 'ps', 'health-user.ps1'), 'utf8')));
   check('页面文件 40 GB 给出提示', ids.includes('pagefile'));
@@ -199,12 +201,14 @@ const EDGE_UD = path.join(L, 'Microsoft', 'Edge', 'User Data');
   });
   const dIds = denied.findings.map((x) => x.id);
   const dSev = (id) => (denied.findings.filter((x) => x.id === id)[0] || {}).severity;
-  check('还原点读不到只作提示，不谎称没有', dIds.includes('restore') && dSev('restore') === 'info' && /读不到/.test(denied.findings.filter((x) => x.id === 'restore')[0].title));
+  const byId = (r, id) => r.findings.filter((x) => x.id === id)[0];
+  check('还原点读不到只作提示，不谎称没有', dIds.includes('restore') && dSev('restore') === 'info' && HT.fmt(byId(denied, 'restore'), 'zh').title.indexOf('读不到') >= 0);
   check('日志读不到时不谎称启动诊断停了', !dIds.includes('boot-diag'));
-  check('DISM 被拒说明是权限问题', /权限|740/.test(denied.findings.filter((x) => x.id === 'winsxs')[0].detail));
+  check('DISM 被拒说明是权限问题', /权限|740/.test(HT.fmt(byId(denied, 'winsxs'), 'zh').detail));
   const df = denied.findings.filter((x) => x.id === 'deep-failed')[0];
-  check('列出没读到的项', !!df && /3 项/.test(df.title), df && df.title);
-  check('失败原因翻成人话', df && /权限不够/.test(df.detail) && /日志在本机不存在/.test(df.detail) && !/access-denied|log-absent/.test(df.detail), df && df.detail);
+  const dfText = HT.fmt(df, 'zh');
+  check('列出没读到的项', !!df && /3 项/.test(dfText.title), dfText.title);
+  check('失败原因翻成人话', /权限不够/.test(dfText.detail) && /日志在本机不存在/.test(dfText.detail) && !/access-denied|log-absent/.test(dfText.detail), dfText.detail);
 
   const noCrash = health.report({ disks: [], deep: { boot: { unexpectedShutdowns: 0, readable: { crash: true } } } });
   check('30 天没异常关机判为 good', (noCrash.findings.filter((x) => x.id === 'crash-boot')[0] || {}).severity === 'good');
@@ -214,12 +218,107 @@ const EDGE_UD = path.join(L, 'Microsoft', 'Edge', 'User Data');
   const tr = health.report({ disks: [{ letter: 'C:', free: 1 * 1073741824, size: 465 * 1073741824 }], deep: { trim: [{ fs: 'NTFS', disabled: true }] } });
   check('TRIM 被禁判为风险', tr.findings.filter((x) => x.id === 'trim')[0].severity === 'risk');
 
-  const text = health.toText({ quick: false, counts: rep.counts, findings: rep.findings });
+  // ---------- 设置被回弹 ----------
+  // 事实由 quick() 从档位快照对比出来；这里用伪造事实验判定与文案，不碰真实系统和驱动
+  const driftFacts = {
+    disks: [],
+    drift: {
+      tier: 'esports',
+      at: 1760000000000,
+      game: [{ id: 'hags', kind: 'toggle', mode: 'on', current: 'off', status: 'change' }],
+      gpu: [{ id: '0x1057EB71', value: 1, name: { zh: '电源管理模式', en: 'Power management mode' }, current: '0x0', currentLabel: { zh: '平衡', en: 'Optimal power' }, targetLabel: { zh: '最高性能优先', en: 'Prefer maximum performance' }, status: 'change' }],
+    },
+  };
+  const drep = health.report(driftFacts);
+  const dx = (drep.findings.filter((x) => x.id === 'drift')[0] || {});
+  check('被改回时出一条建议处理', dx.severity === 'warn' && dx.group === 'system', dx);
+  check('条数等于开关项加 N 卡项', dx.params && dx.params.count === 2, dx.params && dx.params.count);
+  check('带上档位与重新应用动作', dx.action && dx.action.kind === 'tierReapply' && dx.action.tier === 'esports', dx.action);
+  check('没优化过或没漂移就一条都不报',
+    health.report({ disks: [] }).findings.filter((x) => x.id === 'drift').length === 0 &&
+    health.report({ disks: [], drift: null }).findings.filter((x) => x.id === 'drift').length === 0);
+
+  const hs = fs.readFileSync(path.join(__dirname, 'engine', 'health.js'), 'utf8');
+  const driftSrc = (hs.match(/async function driftFacts\(\)[\s\S]*?\n}\n/) || [''])[0];
+  check('漂移检测取到档位目标值', /tiers\.preview\(info\.snapshotTier\)/.test(driftSrc) && /status === 'change'/.test(driftSrc), driftSrc.slice(0, 60));
+  check('电源计划与启动项不参与漂移判定', !!driftSrc && !/p\.power/.test(driftSrc) && !/startup/i.test(driftSrc));
+
+  // 文案借用 tiers/game 模块自己的取名函数：借用逻辑用假 window 验，真实界面里它们必然存在
+  global.window = {
+    tiers: {
+      tierName: () => '三档 · 电竞模式',
+      groupText: (k) => (k === 'game' ? '系统游戏开关' : 'N 卡 3D 设置（全局方案）'),
+      gameText: () => ({ name: '硬件加速 GPU 计划（HAGS）', cur: '关闭', to: '开启' }),
+      gpuValueText: (it, which) => (which === 'target' ? '最高性能优先' : '平衡'),
+    },
+  };
+  const dz = HT.fmt(dx, 'zh');
+  check('标题说明被改回的项数和档位', /2 项/.test(dz.title) && /三档 · 电竞模式/.test(dz.title), dz.title);
+  check('分组列出每一项的当前值与应有值',
+    /系统游戏开关\n  硬件加速 GPU 计划（HAGS）：当前 关闭 → 应为 开启/.test(dz.detail) &&
+    /N 卡 3D 设置（全局方案）\n  电源管理模式：当前 平衡 → 应为 最高性能优先/.test(dz.detail), dz.detail);
+  check('说清检测范围只限本软件写过的项', /只限本软件写过/.test(dz.detail));
+  check('按钮与确认框文案齐了',
+    HT.msg('driftReapply', 'zh', { count: 2 }) === '重新应用这 2 项' &&
+    /只修改下面列出的 2 项/.test(HT.msg('driftConfirmDesc', 'zh', { count: 2 })) &&
+    !!HT.msg('driftConfirmTitle', 'zh') && HT.msg('driftConfirmOk', 'zh') === '确认重新应用', HT.msg('driftReapply', 'zh', { count: 2 }));
+  global.window = {
+    tiers: {
+      tierName: () => 'Tier 3 · Esports',
+      groupText: (k) => (k === 'game' ? 'System gaming switches' : 'NVIDIA 3D settings (global profile)'),
+      gameText: () => ({ name: 'Hardware-accelerated GPU scheduling (HAGS)', cur: 'Off', to: 'On' }),
+      gpuValueText: (it, which) => (which === 'target' ? 'Prefer maximum performance' : 'Balanced'),
+    },
+  };
+  const de = HT.fmt(dx, 'en');
+  check('英文同样分组并说范围',
+    /2 item\(s\)/.test(de.title) && /System gaming switches\n  Hardware-accelerated GPU scheduling \(HAGS\): now Off → should be On/.test(de.detail) &&
+    /NVIDIA 3D settings \(global profile\)\n  Power management mode: now Balanced → should be Prefer maximum performance/.test(de.detail) &&
+    /Scope is limited to settings this app wrote/.test(de.detail), de.detail);
+  check('英文按钮与确认框', HT.msg('driftReapply', 'en', { count: 2 }) === 'Re-apply 2 item(s)' && /Only the 2 items listed below change/.test(HT.msg('driftConfirmDesc', 'en', { count: 2 })));
+  check('借不到模块文本时退回原始 id 与十六进制值而不是崩', (function () {
+    delete global.window;
+    const s = HT.fmt(dx, 'zh');
+    return /hags：当前 off → 应为 on/.test(s.detail) && /电源管理模式：当前 0x0 → 应为 1/.test(s.detail) && !!s.title;
+  })());
+
+  const missingTpl = [];
+  for (const x of rep.findings.concat(denied.findings)) {
+    for (const k of [x.titleKey, x.detailKey, x.tipKey]) if (k && !HT.TEMPLATES[k]) missingTpl.push(x.id + ' -> ' + k);
+  }
+  check('每条结论都有双语模板', missingTpl.length === 0, missingTpl);
+
+  // 分支覆盖不到的文案也要有模板：直接扫源码里出现的 key，漏一条就红
+  const hsrc = fs.readFileSync(path.join(__dirname, 'engine', 'health.js'), 'utf8');
+  const used = new Set([...hsrc.matchAll(/'([a-z][A-Za-z]*(?:Title|Detail|Tip))'/g)].map((m) => m[1]));
+  const undef = [...used].filter((k) => !HT.TEMPLATES[k]);
+  check('health.js 引用的每个文案 key 都有模板', undef.length === 0, undef);
+  const usedMsg = new Set([...hsrc.matchAll(/messageKey: '(\w+)'/g)].map((m) => m[1]));
+  check('流程提示的 key 也都有模板', [...usedMsg].every((k) => !!HT.MSG[k]), [...usedMsg].filter((k) => !HT.MSG[k]));
+  const dead = Object.keys(HT.TEMPLATES).filter((k) => !used.has(k));
+  check('没有没人用的文案模板', dead.length === 0, dead);
+
+  const text = HT.toText({ quick: false, counts: rep.counts, findings: rep.findings }, 'zh');
   check('导出文本含标题与结论', /RedVolt Lab 体检报告/.test(text) && /结论：/.test(text));
   check('导出文本含每条建议', /建议：/.test(text) && /\[风险\]/.test(text));
   check('导出文本声明只读', /未对系统做任何修改/.test(text));
+  const textEn = HT.toText({ quick: false, counts: rep.counts, findings: rep.findings }, 'en');
+  check('导出文本能整份出英文', !/[\u3400-\u9fff]/.test(textEn) && /health report/i.test(textEn), textEn.slice(0, 200));
+
+  // 重新应用只能改清单里列出的项：电源计划必须在整条链路上被跳过
+  const tsrc = fs.readFileSync(path.join(__dirname, 'engine', 'tiers.js'), 'utf8');
+  const msrc = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  const rsrc = fs.readFileSync(path.join(__dirname, 'renderer', 'app.js'), 'utf8');
+  const psrc = fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8');
+  check('档位执行支持只改开关与 N 卡', /if \(!o\.skipPower && p\.power/.test(tsrc) && /async function apply\(key, confirmed, opts\)/.test(tsrc), tsrc.match(/if \(!o\.skipPower[^\n]*/));
+  check('没得改时直接报 unchanged 不做空写入', /const pending =/.test(tsrc) && /if \(!pending\) return \{ ok: true, unchanged: true/.test(tsrc));
+  check('主进程只接受 skipPower 一个开关', /tiers\.apply\(k, true, opts && opts\.skipPower === true \? \{ skipPower: true \} : null\)/.test(msrc), (msrc.match(/tiers\.apply\(k, true[^\n]*/) || [])[0]);
+  check('渲染层重新应用带上 skipPower', /api\.tiersApply\(\(x\.action \|\| \{\}\)\.tier, true, \{ skipPower: true \}\)/.test(rsrc), (rsrc.match(/api\.tiersApply\([^\n]*/) || [])[0]);
+  check('preload 把 opts 透传过去', /tiersApply: \(key, confirmed, opts\) => invoke\('tiers:apply', key, confirmed, opts\)/.test(psrc));
+  check('确认文案承诺只改列出的项', /其它一律不动/.test(fs.readFileSync(path.join(__dirname, 'renderer', 'health-text.js'), 'utf8')));
 
   // 纯函数部分，不会调用 PowerShell，也不会弹 UAC
+
   console.log('== 5. 还原点可用性判定 ==');
   const rp = require('./engine/restorepoint');
   check('读不到状态时如实说不可用', rp.availability(null).available === false && /读取失败/.test(rp.availability(null).reason));

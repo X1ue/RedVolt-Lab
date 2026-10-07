@@ -104,6 +104,17 @@
     return { name, cur, to };
   }
 
+  function tierName(key) {
+    const m = t().tiers[key];
+    return m ? m.name : String(key || '');
+  }
+
+  // 体检报告里的漂移清单借用这两个分组标题，避免同一份中文再抄一遍
+  function groupText(kind) {
+    const g = t().groups;
+    return (g && g[kind]) || String(kind || '');
+  }
+
   function status(text, cls) {
     const bar = document.querySelector('.tier-card .power-head');
     if (!bar) return;
@@ -394,5 +405,5 @@
   });
   $('tierRestore').addEventListener('click', () => showRestore());
 
-  window.tiers = { ensureLoaded, render, refreshInfo };
+  window.tiers = { ensureLoaded, render, refreshInfo, gameText, gpuValueText, tierName, groupText };
 })();

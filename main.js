@@ -558,7 +558,7 @@ ipcMain.handle('game:restore', async (e, confirmed) => {
 ipcMain.handle('tiers:info', () => tiers.info());
 ipcMain.handle('tiers:preview', (e, key) => tiers.preview(typeof key === 'string' ? key : ''));
 
-ipcMain.handle('tiers:apply', async (e, key, confirmed) => {
+ipcMain.handle('tiers:apply', async (e, key, confirmed, opts) => {
   if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
   const k = typeof key === 'string' ? key : '';
   // 1C：改前兜底。开了「优化前自动创建还原点」就先建（24 小时内已有则复用），
@@ -570,16 +570,18 @@ ipcMain.handle('tiers:apply', async (e, key, confirmed) => {
     log.append(`优化前还原点 | ${rp.created ? '已创建' : rp.reused ? '复用已有' : '未创建'} | ${rp.reason || ''}`);
     send('restorepoint:state', { phase: 'done', ...rp });
   }
-  const r = await tiers.apply(k, true);
+  const r = await tiers.apply(k, true, opts && opts.skipPower === true ? { skipPower: true } : null);
+  const drift = opts && opts.skipPower === true;
   const parts = [];
   if (r.power) parts.push('电源' + (r.power.ok ? '已改' : '失败'));
   if (r.game) parts.push('系统开关' + r.game.count + '项' + (r.game.ok ? '已改' : '失败'));
   if (r.gpu) parts.push('N卡' + r.gpu.count + '项' + (r.gpu.ok ? '已改' : '失败'));
-  log.append(`一键优化 | ${key} | ${r.ok ? (r.unchanged ? '已是该档位状态' : parts.join('，')) : '失败: ' + (r.errors || []).join('；')}`);
+  // 体检里的「重新应用」只改开关与 N 卡，日志要按真实入口记，别混成一键优化
+  log.append(`${drift ? '体检·重新应用（不动电源计划）' : '一键优化'} | ${key} | ${r.ok ? (r.unchanged ? '已是该档位状态' : parts.join('，')) : '失败: ' + (r.errors || []).join('；')}`);
   if (r.ok && !r.unchanged) {
     ledger.record({
       source: '一键优化',
-      label: `应用「${TIER_NAMES[k] || k}」（${parts.join('，') || '已改'}）`,
+      label: `${drift ? '重新应用' : '应用'}「${TIER_NAMES[k] || k}」（${parts.join('，') || '已改'}）`,
       undo: { type: 'tier' },
       undoHint: '撤销 = 按优化前快照回写电源计划、系统开关与 N 卡设置',
     });
@@ -667,9 +669,11 @@ ipcMain.handle('health:deep', async () => {
   return r;
 });
 
-ipcMain.handle('health:export', async () => {
-  if (!lastHealth || !Array.isArray(lastHealth.findings)) return { ok: false, message: '还没有体检结果，请先跑一次体检' };
+ipcMain.handle('health:export', async (e, text) => {
+  if (!lastHealth || !Array.isArray(lastHealth.findings)) return { ok: false, messageKey: 'noResult' };
   if (!win) return { ok: false, message: '窗口不可用' };
+  // 报告文本由渲染层按界面语言生成，主进程只负责落盘
+  if (typeof text !== 'string' || !text.length || text.length > 2000000) return { ok: false, message: '报告内容异常，已拒绝写入' };
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
   const r = await dialog.showSaveDialog(win, {
     title: '保存体检报告',
@@ -678,7 +682,7 @@ ipcMain.handle('health:export', async () => {
   });
   if (r.canceled || !r.filePath) return { ok: false, canceled: true };
   try {
-    fs.writeFileSync(r.filePath, health.toText(lastHealth), 'utf8');
+    fs.writeFileSync(r.filePath, text, 'utf8');
   } catch (err) {
     return { ok: false, message: '写入失败：' + ((err && err.message) || err) };
   }
