@@ -96,6 +96,12 @@ contextBridge.exposeInMainWorld('optimizer', {
   winCloseAnswer: (choice) => invoke('win:closeAnswer', choice),
   winCloseReset: () => invoke('win:closeReset'),
   appVersion: () => invoke('app:version'),
+  // 报备通道：不等回包。主进程只用这两个值决定「藏起来之后要不要拆掉渲染进程」，
+  // 标签页名在主进程侧还要过一遍白名单，拆完重建靠 URL 参数回原页。
+  winTab: (name) => ipcRenderer.send('win:tab', typeof name === 'string' ? name : ''),
+  winBusy: (on) => ipcRenderer.send('win:busy', on === true),
+  // 唤醒重建专用：初始化装完监听器再报，主进程据此露脸，避免 active 事件发在监听器之前
+  winReady: () => ipcRenderer.send('win:ready'),
   onCleanProgress: (cb) => subscribe('clean:progress', cb),
   onFolderProgress: (cb) => subscribe('folders:progress', cb),
   onUpdateState: (cb) => subscribe('update:state', cb),

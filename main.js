@@ -34,10 +34,45 @@ let win = null;
 let tray = null;
 let isQuitting = false;
 
+// 托盘休眠：藏起来满 60 秒就把渲染进程整个拆掉，点托盘再重建。
+// 隐藏态的 CPU 实测已接近 0（5 秒 0～16ms），这一刀省的是内存：渲染进程连同页面里
+// 攒下的扫描结果、显卡设置表、图表数据一起还回去。代价是唤醒要 0.5～1 秒重建。
+const SLEEP_AFTER_MS = 60000;
+const TABS = new Set(['home', 'disk', 'system', 'gpu', 'power', 'game', 'startup', 'info', 'update', 'log']);
+let sleepTimer = null;
+let rendererAsleep = false;
+let rendererBusy = false;
+let lastBounds = null;
+let lastTab = 'home';
+let wakeReveal = null;               // 唤醒重建时「可以露脸了」的回调，等渲染层报 ready 才触发
+let wakingPending = false;           // 这次窗口是不是唤醒重建的，决定 ready 时要不要补发 win:active
+
 app.setAppUserModelId('com.local.sysoptimizer');
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+function cancelRendererSleep() {
+  if (sleepTimer != null) { clearTimeout(sleepTimer); sleepTimer = null; }
+}
+
+function scheduleRendererSleep() {
+  cancelRendererSleep();
+  if (rendererAsleep) return;
+  sleepTimer = setTimeout(trySleepRenderer, SLEEP_AFTER_MS);
+}
+
+function trySleepRenderer() {
+  sleepTimer = null;
+  if (rendererAsleep || !win || win.isDestroyed()) return;
+  if (win.isVisible()) return;                  // 已经回到前台，不拆
+  if (!tray || tray.isDestroyed()) return;      // 没有托盘就没有叫醒的路，绝不拆
+  // 扫描/清理要跑几十秒到几分钟，结果只活在当前这一个页面里：正忙就再等一轮，别吞掉用户的活儿
+  if (rendererBusy) { scheduleRendererSleep(); return; }
+  lastBounds = win.getBounds();
+  rendererAsleep = true;
+  win.destroy();                                // → 'closed' → win = null
 }
 
 // 托盘菜单是原生控件，渲染层的翻译器碰不到，只能按设置里的语言自己拼
@@ -68,14 +103,22 @@ function ensureTray() {
     ]));
   });
   tray.on('click', () => {
-    if (!win || win.isDestroyed()) return;
+    // 休眠中 win 是 null，这里必须能叫得醒，否则托盘成了死图标
+    if (rendererAsleep || !win || win.isDestroyed()) { showFromTray(); return; }
     if (win.isVisible()) win.hide(); else showFromTray();
   });
   return tray;
 }
 
 function showFromTray() {
+  if (rendererAsleep) {
+    cancelRendererSleep();
+    rendererAsleep = false;
+    createWindow({ waking: true });
+    return;
+  }
   if (!win || win.isDestroyed()) return;
+  cancelRendererSleep();
   win.show();
   win.focus();
   // 隐藏期间切了语言的话，趁这次回到前台补上
@@ -103,17 +146,25 @@ function closeWindow() {
   win.close();
 }
 
-function createWindow() {
+function createWindow(opts = {}) {
+  const waking = opts.waking === true;
+  rendererBusy = false;            // 新页面必然不忙，清零旧标志，休眠不会永久卡住
+  wakingPending = waking;
   const iconPath = path.join(__dirname, 'build', 'icon.ico');
+  const bounds = waking && lastBounds ? lastBounds : { width: 1080, height: 780 };
   win = new BrowserWindow({
-    width: 1080,
-    height: 780,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     minWidth: 900,
     minHeight: 640,
     title: 'RedVolt Lab',
     backgroundColor: '#000000',
     frame: false,
     maximizable: false,
+    // 唤醒时先不显示，等页面画好再揭，避免用户看到一帧空壳
+    show: !waking,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -124,11 +175,31 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // 靠 URL 参数回原标签页：页面自己从 location.search 读，不等 IPC，没有时序竞争。
+  // wake=1 同时告诉渲染层「这是唤醒重建，首屏先别采样」，等露脸的 show 事件再起监控。
+  const indexPath = path.join(__dirname, 'renderer', 'index.html');
+  if (waking) win.loadFile(indexPath, { query: { wake: '1', tab: lastTab } });
+  else win.loadFile(indexPath);
   win.on('closed', () => { win = null; });
+  if (waking) {
+    let revealed = false;
+    const w = win;
+    const reveal = () => {
+      if (revealed || w.isDestroyed()) return;
+      revealed = true;
+      wakeReveal = null;
+      w.show();
+      w.focus();
+    };
+    // 等页面自己报「我装好了」再露脸：ready-to-show 只保证画了第一帧，不等等于事件监听器装好，
+    // 那时候发 win:active 会石沉大海，首页指标就一直是空的。
+    wakeReveal = reveal;
+    // 兜底：渲染层初始化挂了也没人报 ready，2 秒后照样露脸，不能把界面锁在黑里
+    setTimeout(reveal, 2000);
+  }
   // ✕ 和 Alt+F4 都走这里：没记住选择就先问，问了再决定收起还是退出
   win.on('close', (e) => {
-    if (isQuitting) return;
+    if (isQuitting || rendererAsleep) return;
     const s = settings.get();
     if (s.closeRemember !== true || !s.closeBehavior) {
       e.preventDefault();
@@ -141,10 +212,11 @@ function createWindow() {
     }
   });
   // 看不见的时候别白干活：渲染进程靠这两个事件停掉采样和背景动画
-  win.on('hide', () => send('win:active', false));
+  // 藏进托盘再满 60 秒，就顺带排一次「拆渲染进程」的闹钟；最小化不排（随时要点回来）
+  win.on('hide', () => { send('win:active', false); scheduleRendererSleep(); });
   win.on('minimize', () => send('win:active', false));
-  win.on('show', () => send('win:active', true));
-  win.on('restore', () => send('win:active', true));
+  win.on('show', () => { cancelRendererSleep(); send('win:active', true); });
+  win.on('restore', () => { cancelRendererSleep(); send('win:active', true); });
 }
 
 async function freeSpace() {
@@ -787,6 +859,26 @@ ipcMain.handle('win:closeAnswer', (e, choice) => {
 
 ipcMain.handle('win:closeReset', () => settings.unset(['closeBehavior', 'closeRemember']));
 
+// 渲染层切标签页时报备一声，休眠重建时才知道该回到哪一页。白名单在 TABS 里，
+// 值只用来挑 query 参数，不拼进任何路径或选择器。
+ipcMain.on('win:tab', (e, name) => {
+  if (typeof name === 'string' && TABS.has(name)) lastTab = name;
+});
+
+// 渲染层的「正在忙」由 setBusy 单点上报：正忙时不休眠，避免扫描/清理的结果被拆掉。
+// 标志位只影响休眠，不影响任何真实操作；重建窗口时会清零，卡不住。
+ipcMain.on('win:busy', (e, on) => { rendererBusy = on === true; });
+
+// 唤醒重建：页面把监听器装好后报一声，主进程此刻才露脸，保证露脸后发的 win:active 有人接。
+ipcMain.on('win:ready', () => {
+  const reveal = wakeReveal;
+  wakeReveal = null;
+  if (reveal) reveal();
+  // 兜底闹钟可能比页面更早露脸，那一次 win:active 是空发、没人接。这里补一发：
+  // 唤醒的窗口本来就是给前台用的，重复的 active true 渲染层是幂等的（startMonitor 有定时器守卫）。
+  if (wakingPending) send('win:active', true);
+});
+
 
 // ==================== 生命周期 ====================
 
@@ -810,7 +902,7 @@ app.whenReady().then(() => {
     setTimeout(() => { updater.check(); }, 4000);
   }
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) { rendererAsleep = false; createWindow(); }
   });
 });
 
@@ -821,5 +913,7 @@ app.on('before-quit', () => {
 
 app.on('window-all-closed', () => {
   gload.stop();
+  // 休眠拆掉的窗口不算「所有窗口关了」：托盘还在，进程得活着等唤醒
+  if (rendererAsleep && tray && !tray.isDestroyed()) return;
   if (process.platform !== 'darwin') app.quit();
 });

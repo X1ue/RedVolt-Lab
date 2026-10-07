@@ -66,6 +66,7 @@ function status(msg, kind) {
 function setBusy(on, msg) {
   state.busy = on;
   refreshButtons();
+  if (api.winBusy) api.winBusy(!!on);   // 主进程据此决定休眠与否：忙就别拆页面
   if (msg) status(msg);
 }
 
@@ -156,6 +157,8 @@ function switchTab(name) {
     loadBaseline();
   }
   if (name === 'log') { loadLog(); loadLedger(); }
+  // 报备当前页：主进程把渲染进程拆了再重建时，靠这个值回到同一页（丢失的是滚动位置）
+  if (api.winTab) api.winTab(name);
 }
 
 // ---------- 清理项列表 ----------
@@ -1216,7 +1219,8 @@ async function refreshMetrics() {
 }
 
 function startMonitor() {
-  refreshMetrics();
+  // 首次采样也看可见性：从别的页切回首页时窗口可能正藏着，那一发 nvidia-smi 是白跑的
+  if (!document.hidden) refreshMetrics();
   if (monTimer == null) monTimer = setInterval(() => {
     if (!document.hidden) refreshMetrics();
   }, 2000);
@@ -1699,10 +1703,26 @@ async function init() {
   refreshButtons();
   await refreshFree();
   await refreshBrowserBanner();
-  startMonitor();
-  initSettings();
+  // 唤醒重建（?wake=1）时窗口此刻还没露脸，起了监控也只会被随后的 show 重启一次，
+  // 不如等 win:active 事件来起，省掉一次白跑的系统采样。
+  const q = new URLSearchParams(location.search);
+  const waking = q.get('wake') === '1';
+  if (!waking) startMonitor();
+  // 必须等 initSettings 把 onWinActive 等监听器装完再报 ready：唤醒时主进程收到 ready 才露脸，
+  // 露脸瞬间发的 win:active 才有接收者，否则首页指标会一直空着。
+  await initSettings();
   initBaseline();
   if (window.tiers) await window.tiers.ensureLoaded();
+
+  // 唤醒重建：主进程用 ?tab= 说明原来停在哪一页。值先跟 DOM 里的合法标签比一遍，
+  // 对不上就留在首页，不拿外部字符串去拼选择器。
+  const wantTab = q.get('tab') || '';
+  if (wantTab && wantTab !== 'home') {
+    const valid = [...document.querySelectorAll('.tab')].map((t) => t.dataset.tab);
+    if (valid.includes(wantTab)) switchTab(wantTab);
+  }
+  // 页面就绪，主进程可以揭帘露脸（非唤醒场景下这个通知没人监听，无副作用）
+  if (api.winReady) api.winReady();
 }
 
 // ---------- 关闭方式：自绘询问弹窗 ----------
@@ -1792,8 +1812,15 @@ async function initSettings() {
   api.onWinActive((on) => {
     if (window.bgFx) window.bgFx.setPaused(!on);
     const cur = document.querySelector('.tab.active');
-    if (!on) { stopMonitor(); return; }
+    if (!on) {
+      stopMonitor();
+      // 显卡页的硬件采样是另一条独立轮询，光靠页面可见性拦不住（窗口收起来时
+      // document.hidden 未必为真），停工必须显式叫停
+      if (window.gpu && window.gpu.pause) window.gpu.pause();
+      return;
+    }
     if (cur && cur.dataset.tab === 'home') startMonitor();
+    if (cur && cur.dataset.tab === 'gpu' && window.gpu) window.gpu.ensureLoaded();
   });
 
   try {
