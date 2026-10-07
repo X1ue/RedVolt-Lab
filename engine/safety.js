@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { allowedRoots, protectList, systemAllowed } = require('./config');
+const { allowedRoots, protectList, protectExceptions, systemAllowed } = require('./config');
 
 function norm(p) {
   return path.resolve(String(p)).replace(/[\\/]+$/, '');
@@ -14,8 +14,10 @@ function startsWithBoundary(child, parent) {
   return c === p || c.startsWith(p + path.sep);
 }
 
+// 命中保护前缀即拒绝，但保护清单里显式列出的缓存子目录（浏览器 Cache 等）仍然放行
 function isProtected(p) {
-  return protectList.some((pre) => startsWithBoundary(p, pre));
+  if (!protectList.some((pre) => startsWithBoundary(p, pre))) return false;
+  return !protectExceptions.some((ex) => startsWithBoundary(p, ex));
 }
 
 async function isReparsePoint(p) {
@@ -40,7 +42,10 @@ async function checkPath(p, { admin = false } = {}) {
   try {
     await fs.promises.lstat(p);
   } catch (e) {
-    return '不存在';
+    // 系统目录普通权限连元数据都读不到（EPERM）。这不是「不存在」，
+    // 如实放行给提权侧，由提权脚本再查一次存在性和白名单；谎报不存在会让项目永远清不掉。
+    const code = e && e.code;
+    if (code !== 'EPERM' && code !== 'EACCES') return '不存在';
   }
   if (isProtected(p)) return '在保护清单中';
   if (await isReparsePoint(p)) return '是链接/重解析点，已拒绝';

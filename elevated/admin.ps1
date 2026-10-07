@@ -7,7 +7,12 @@ $Allowed = @(
     (Join-Path $env:windir 'SoftwareDistribution\Download'),
     (Join-Path $env:ProgramData 'Microsoft\Windows\WER\ReportQueue'),
     (Join-Path $env:ProgramData 'Microsoft\Windows\WER\ReportArchive'),
-    (Join-Path $env:windir 'Prefetch')
+    (Join-Path $env:windir 'Prefetch'),
+    (Join-Path $env:windir 'Temp'),
+    (Join-Path $env:windir 'Logs\CBS'),
+    (Join-Path $env:windir 'ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache'),
+    (Join-Path $env:SystemDrive 'Windows.old'),
+    (Join-Path $env:SystemDrive '$WINDOWS.~BT')
 )
 
 function Test-Allowed([string]$Path) {
@@ -84,6 +89,11 @@ try {
                 }
             } elseif ($req.action -eq 'clean') {
                 $r = Remove-DirContents $p
+                if ($t.kind -eq 'removeDirs') {
+                    # Windows.old / $WINDOWS.~BT: the folder itself must go, not just its contents
+                    Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue
+                    if (Test-Path -LiteralPath $p) { $r.locked = $r.locked + 1 } else { $r.deleted = $r.deleted + 1 }
+                }
                 [void]$list.Add([pscustomobject]@{ id = $t.id; status = 'done'; message = ''; deleted = $r.deleted; locked = $r.locked; freed = $r.freed; size = 0; count = 0; last = $null })
             }
         }

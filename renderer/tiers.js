@@ -298,9 +298,11 @@
     renderCards();
     try {
       const r = await api.tiersApply(key, true);
+      const rp = r && r.restorePoint;
       if (r && r.ok) {
         hidePending();
         status(r.unchanged ? T.unchanged : T.done(meta.name), 'ok');
+        if (rp && !rp.created && !rp.reused) showRpNote(rp.reason || '未知原因');
       } else if (r && r.errors && r.errors.length && (r.power || r.game || r.gpu)) {
         status(T.partial(r.errors.join('；')), 'err');
       } else {
@@ -314,6 +316,16 @@
       state.busy = false;
       renderCards();
     }
+  }
+
+  // 还原点没建成必须让用户看见，不能被「优化成功」的提示盖掉
+  function showRpNote(reason) {
+    const box = $('tierPending');
+    box.classList.remove('hidden');
+    box.textContent = '';
+    const s = el('span', 'game-note');
+    s.textContent = `还原点未创建：${reason}。档位本身已应用，撤销请用「记录与撤销」页。`;
+    box.appendChild(s);
   }
 
   function showRestore() {

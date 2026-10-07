@@ -19,7 +19,7 @@
   <button class="tab" data-tab="startup"><span class="tico">⏻</span><span class="tlabel">启动项</span></button>
   <button class="tab" data-tab="info"><span class="tico">◉</span><span class="tlabel">系统信息</span></button>
   <button class="tab" data-tab="update"><span class="tico">↻</span><span class="tlabel">更新<span id="updateDot" class="dot hidden"></span></span></button>
-  <button class="tab" data-tab="log"><span class="tico">☰</span><span class="tlabel">清理日志</span></button>
+  <button class="tab" data-tab="log"><span class="tico">☰</span><span class="tlabel">记录与撤销</span></button>
 </aside>
 
 <div id="shell">
@@ -57,6 +57,7 @@
         <div class="hero-actions">
           <button id="homeOneKey" class="btn primary big">一键清理</button>
           <button id="homeManual" class="btn ghost big">手动选择</button>
+          <button id="homeHealth" class="btn ghost big">只读体检</button>
         </div>
         <div class="hero-stats">
           <div class="stat"><span class="sv" id="statFree">—</span><span class="sk">C 盘可用</span></div>
@@ -161,6 +162,30 @@
     </div>
     <p class="hint">这些项目位于系统目录，扫描和清理都会弹一次 Windows 管理员授权（UAC）。拒绝授权则不做任何修改。提权脚本内部还有一份独立白名单，表外路径一律拒绝。</p>
     <div id="systemList" class="list"></div>
+
+    <div class="card syscard">
+      <div class="syscard-head">
+        <span class="syscard-title">组件存储 WinSxS</span>
+        <span class="spacer"></span>
+        <button id="wsAnalyze" class="btn ghost small">分析（只读，需管理员）</button>
+        <button id="wsClean" class="btn small" disabled>常规清理</button>
+        <button id="wsResetBase" class="btn danger small" disabled>深度清理</button>
+      </div>
+      <p class="hint">WinSxS 里的文件大多是指向系统文件的硬链接，资源管理器显示的体积远大于真实占用，所以这里一律以 DISM 自己的报告为准：DISM 说该清才会放开「清理」按钮，读不到就如实说读不到，不估一个「大概能省几个 G」。</p>
+      <div id="wsBody" class="syscard-body muted">还没有分析。点「分析」会弹一次管理员授权，只读取 DISM 报告，不改动任何东西。</div>
+      <div id="wsProgress" class="syscard-progress hidden"></div>
+    </div>
+
+    <div class="card syscard">
+      <div class="syscard-head">
+        <span class="syscard-title">旧驱动包</span>
+        <span class="spacer"></span>
+        <button id="drvScan" class="btn ghost small">扫描（只读）</button>
+        <button id="drvClean" class="btn danger small" disabled>删除勾选项</button>
+      </div>
+      <p class="hint">只列出「同一个 inf 在驱动库里存了多份」的情况，保留最新的一份（按 Windows 自己的排序规则：日期新者优先，日期相同再比版本号）。删除用 pnputil /delete-driver，不带 /force 也不带 /uninstall，任何仍被设备使用的包都会被系统自己拒绝。</p>
+      <div id="drvBody" class="syscard-body muted">还没有扫描。扫描只读驱动库，不需要管理员权限，也不会删除任何驱动。</div>
+    </div>
   </section>
 
   <!-- 显卡优化 -->
@@ -245,6 +270,22 @@
 
   <!-- 系统信息 -->
   <section id="tab-info" class="panel">
+    <div class="baseline">
+      <div class="toolbar">
+        <strong class="bl-title">性能基线</strong>
+        <button id="baseBefore" class="btn ghost small">记为优化前</button>
+        <button id="baseAfter" class="btn ghost small">记为优化后</button>
+        <button id="baseRefresh" class="btn ghost small">刷新</button>
+        <button id="baseClear" class="btn ghost small">清除</button>
+        <label class="ack inline">
+          <input type="checkbox" id="baseBench" />
+          <span>附带磁盘 4K 实测（需管理员，约 1 分钟）</span>
+        </label>
+        <span id="baseProgress" class="progress"></span>
+      </div>
+      <div id="baselineBody" class="bl-body"></div>
+      <p class="hint">基线只是当前状态的快照，记录它不会改动系统。想验证效果：优化前记一次，优化后再记一次，这里给出差值。4K 实测用 Windows 自带的 winsat，跑不起来会如实写明原因，不会用估算数字顶替。</p>
+    </div>
     <div id="infoCards" class="cards"></div>
     <div class="toolbar">
       <select id="folderRoot"></select>
@@ -267,13 +308,25 @@
     <div id="updateBar" class="bar hidden"><i></i></div>
     <div id="updateCards" class="cards"></div>
     <div id="updateNotes" class="path"></div>
-    <p class="hint">更新文件托管在 GitHub Releases，软件只读取公开下载地址，不需要任何账号或密钥。只有「Setup 安装版」支持自动更新，便携版不能自我更新。发现新版本后需要你分别点击「下载更新」和「安装并重启」，软件不会静默覆盖文件，也不会不打招呼就重启。</p>
+    <p class="hint">软件只读取公开下载地址，不需要任何账号或密钥。只有「Setup 安装版」支持自动更新，便携版不能自我更新。发现新版本后需要你分别点击「下载更新」和「安装并重启」，软件不会静默覆盖文件，也不会不打招呼就重启。</p>
   </section>
 
-  <!-- 日志 -->
+  <!-- 记录与撤销 -->
   <section id="tab-log" class="panel">
     <div class="toolbar">
-      <button id="logRefresh" class="btn ghost">刷新</button>
+      <button id="ledgerRefresh" class="btn ghost">刷新记录</button>
+      <button id="ledgerUndoAll" class="btn danger">全部撤销</button>
+      <span class="spacer"></span>
+      <button id="rpCreate" class="btn ghost">立即创建还原点</button>
+      <button id="rpStatus" class="btn ghost">还原点状态</button>
+    </div>
+    <p class="hint">这里按时间倒序列出本软件做过的每一次改动，能撤销的会给出「撤销」按钮，撤销就是把记录里的原值精确写回去。删文件类操作物理上不可恢复，会如实标注「无法撤销」，不假装能还原。</p>
+    <div id="ledgerStats" class="path"></div>
+    <div id="rpState" class="path"></div>
+    <div id="ledgerList" class="ledger"></div>
+
+    <div class="toolbar log-bar">
+      <button id="logRefresh" class="btn ghost">刷新日志</button>
       <button id="logOpen" class="btn ghost">打开日志位置</button>
       <span class="spacer"></span>
       <span id="logPath" class="path"></span>
@@ -302,6 +355,23 @@
   </div>
 </div>
 
+<!-- 关闭方式询问（自绘，不用系统消息框） -->
+<div id="closeModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>关闭 RedVolt Lab</h2>
+    <p class="hint">最小化到后台：窗口收起，程序继续在运行，从右下角托盘图标可以再次打开。<br>彻底退出：程序完全关闭，不再占用内存。</p>
+    <label class="ack">
+      <input type="checkbox" id="closeRemember" />
+      <span>记住我的选择，以后不再询问</span>
+    </label>
+    <div class="modal-actions">
+      <button id="closeCancel" class="btn ghost">取消</button>
+      <button id="closeHide" class="btn">最小化到后台</button>
+      <button id="closeQuit" class="btn danger">彻底退出</button>
+    </div>
+  </div>
+</div>
+
 <!-- 软件设置弹窗 -->
 <div id="settingsModal" class="modal hidden">
   <div class="modal-box settings-box">
@@ -321,6 +391,18 @@
       <span>启动时自动检查更新</span>
       <input type="checkbox" id="setAutoUpdate" />
     </label>
+    <label class="set-row">
+      <span>应用一键优化前先建还原点</span>
+      <input type="checkbox" id="setRestorePoint" />
+    </label>
+    <p class="hint set-note">还原点只是兜底：真正的撤销靠「记录与撤销」页里逐条记录的原值。Windows 限制 24 小时内只能建一个还原点，间隔内会自动复用已有的；建不成会把原因如实显示，不会假装已保护。</p>
+    <div class="set-row">
+      <span>关闭程序时</span>
+      <span class="mono">
+        <span id="setCloseBehavior">每次询问</span>
+        <button id="setCloseReset" class="btn ghost small hidden">重新询问</button>
+      </span>
+    </div>
     <div class="set-row">
       <span>当前版本</span>
       <span id="setVersion" class="mono">—</span>
@@ -328,6 +410,25 @@
     <p class="hint">清理确认、NVIDIA 缓存等安全规则不受这里的影响，删除前永远会先扫描预览并让你确认。</p>
     <div class="modal-actions">
       <button id="settingsClose" class="btn ghost">关闭设置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 只读体检报告 -->
+<div id="healthModal" class="modal hidden">
+  <div class="modal-box health-box">
+    <h2>只读体检报告</h2>
+    <p class="hint">体检只读取系统信息，不改任何设置、不删任何文件。快速体检用普通权限，几秒出结果；深度体检需要一次管理员授权（UAC），才能读到组件存储、TRIM、还原点、驱动库和启动诊断日志。</p>
+    <div class="toolbar">
+      <button id="healthQuick" class="btn ghost small">快速体检</button>
+      <button id="healthDeep" class="btn primary small">深度体检（需管理员）</button>
+      <button id="healthExport" class="btn ghost small hidden">导出报告</button>
+      <span class="spacer"></span>
+      <span id="healthCounts" class="progress"></span>
+    </div>
+    <div id="healthBody" class="health-body"></div>
+    <div class="modal-actions">
+      <button id="healthClose" class="btn ghost">关闭体检</button>
     </div>
   </div>
 </div>
@@ -351,6 +452,7 @@
 
 <script src="fx.js"></script>
 <script src="i18n.js"></script>
+<script src="dropdown.js"></script>
 <script src="eula.js"></script>
 <script src="app.js"></script>
 <script src="gpu.js"></script>

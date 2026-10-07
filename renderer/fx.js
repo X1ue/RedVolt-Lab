@@ -11,7 +11,7 @@
 
   let W = 0, H = 0, dpr = 1;
   let bolts = [], flashes = [];
-  let raf = null, nextSpawn = 0, running = false;
+  let raf = null, nextSpawn = 0, running = false, paused = false;
 
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -109,6 +109,10 @@
   }
 
   function frame(t) {
+    if (paused) {
+      raf = null;
+      return;
+    }
     raf = requestAnimationFrame(frame);
 
     // 余辉：把上一帧按透明度擦掉一部分，画布仍是透明的，页面背景照旧透出
@@ -173,8 +177,25 @@
 
   window.addEventListener('resize', () => { if (running) resize(); });
 
+  /** 窗口看不见时逐帧停摆：画布没人看，没必要继续占 CPU/GPU。回到前台再续上。 */
+  function setPaused(on) {
+    const v = !!on;
+    if (v === paused) return;
+    paused = v;
+    if (paused) {
+      if (raf != null) cancelAnimationFrame(raf);
+      raf = null;
+      bolts = [];
+      flashes = [];
+      ctx.clearRect(0, 0, W, H);
+    } else if (running && raf == null) {
+      raf = requestAnimationFrame(frame);
+    }
+  }
+
   window.bgFx = {
     setEnabled(on) { if (on) start(); else stop(); },
+    setPaused,
     get enabled() { return running; },
   };
 

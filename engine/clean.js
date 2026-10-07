@@ -3,20 +3,21 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { getTarget, targetPaths, TEMP_AGE_DAYS } = require('./config');
-const { checkPath } = require('./safety');
+const { checkPath, isProtected } = require('./safety');
 const { runCommand, parseJson } = require('./ps');
 const { walk } = require('./scan');
 
 const RESIDUAL_WARN_BYTES = 1 * 1024 * 1024;
 
 function newStats() {
-  return { deleted: 0, locked: 0, freed: 0 };
+  return { deleted: 0, locked: 0, freed: 0, blocked: 0 };
 }
 
 function merge(into, from) {
   into.deleted += from.deleted;
   into.locked += from.locked;
   into.freed += from.freed;
+  into.blocked += (from.blocked || 0);
 }
 
 /** 清空目录内容并保留目录本身；不跟随链接；被占用的逐项跳过 */
@@ -31,6 +32,8 @@ async function clearDirContents(dir, opt = {}) {
   }
   for (const ent of entries) {
     const full = path.join(dir, ent.name);
+    // 保护清单里的项（凭据、UWP 数据等）逐个复查，绝不递归进去删
+    if (isProtected(full)) { stats.blocked++; continue; }
     if (ent.isSymbolicLink()) {
       try { await fs.promises.unlink(full); stats.deleted++; } catch (e) { stats.locked++; }
       continue;
@@ -66,6 +69,7 @@ async function cleanTempOld(t) {
   }
   for (const ent of entries) {
     const full = path.join(t.path, ent.name);
+    if (isProtected(full)) { stats.blocked++; continue; }
     let st;
     try { st = await fs.promises.stat(full); } catch (e) { continue; }
     if (st.mtimeMs >= cutoff) continue;
@@ -121,7 +125,7 @@ async function cleanTarget(id) {
 
   const result = {
     id, name: t.name, status: 'done', message: '',
-    deleted: 0, locked: 0, freed: 0, residual: 0, warnings: [],
+    deleted: 0, locked: 0, freed: 0, residual: 0, blocked: 0, warnings: [],
   };
 
   if (t.kind === 'recycle') {
@@ -189,6 +193,7 @@ async function cleanTarget(id) {
   result.deleted = stats.deleted;
   result.locked = stats.locked;
   result.freed = stats.freed;
+  result.blocked = stats.blocked;
 
   // 清理后复查残留
   let residual = 0;

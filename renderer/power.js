@@ -275,7 +275,9 @@
     render();
   }
 
-  $('powerReload').addEventListener('click', async () => { hidePending(); await load(); render(); });
+  async function reload() { hidePending(); await load(); render(); }
 
-  window.power = { ensureLoaded, render, dispName };
+  $('powerReload').addEventListener('click', reload);
+
+  window.power = { ensureLoaded, render, reload, dispName };
 })();

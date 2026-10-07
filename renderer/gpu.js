@@ -925,7 +925,7 @@
   const origRender = render;
   render = function () { origRender(); renderNotice(); };
 
-  $('gpuReload').addEventListener('click', async () => {
+  async function reloadAll() {
     if (state.busy) return;
     state.profiles = [];
     state.loaded = true;
@@ -934,7 +934,9 @@
     if (state.showAll) await loadProfiles();
     await loadValues();
     render();
-  });
+  }
+
+  $('gpuReload').addEventListener('click', reloadAll);
 
   $('gpuAddApp').addEventListener('click', pickExe);
 
@@ -966,5 +968,5 @@
     render();
   });
 
-  window.gpu = { ensureLoaded, renderStatic: render, pause: stopHwPoll };
+  window.gpu = { ensureLoaded, renderStatic: render, pause: stopHwPoll, reload: reloadAll };
 })();

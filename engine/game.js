@@ -2,6 +2,7 @@
 // 游戏开关：只碰白名单里的几个注册表值（HAGS 在 HKLM，需要管理员授权；其余都在 HKCU）。
 // 修改前把原值备份到 userData，随时可以一键还原；脚本内部还会独立校验一次白名单。
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { app } = require('electron');
 const admin = require('./admin');
@@ -50,6 +51,32 @@ for (const s of SWITCHES) for (const it of s.items) HIVE_OF[it.rid] = it.hive;
 
 function backupFile() {
   return path.join(app.getPath('userData'), 'game-switch-backup.json');
+}
+
+/** 本机这次开机的时间点（ms）：os.uptime 够用，省掉一次 PowerShell */
+function bootAt() {
+  return Date.now() - Math.round(os.uptime() * 1000);
+}
+
+/**
+ * 开关写在 HKLM 且要重启才生效：改动时间晚于上次开机 = 值已经写了，但本次会话还没生效。
+ * 只在「本软件改的」时候判得准（备份里有时间戳）；改动时间在开机之前就返回 false。
+ */
+function pendingRebootAt(at, bootMs) {
+  const t = Number(at);
+  const b = Number(bootMs);
+  if (!Number.isFinite(t) || !Number.isFinite(b) || t <= 0) return false;
+  return t > b;
+}
+
+/** 取某个开关最近一次被本软件改动的时间（老备份没有 changes 表时退回它的原始备份时间） */
+function lastChangedAt(b, id) {
+  if (!b) return 0;
+  const c = b.changes && typeof b.changes === 'object' ? Number(b.changes[id]) : NaN;
+  if (Number.isFinite(c)) return c;
+  const rec = b.items && b.items[id];
+  const t = rec ? Number(rec.at) : NaN;
+  return Number.isFinite(t) ? t : 0;
 }
 
 function readBackup() {
@@ -136,11 +163,12 @@ function needsAdmin(sw) {
 function backupSwitches(raw, ids) {
   const b = readBackup() || { ver: 1, items: {} };
   let changed = false;
+  const now = Date.now();
   for (const id of ids) {
     const sw = BY_ID[id];
     if (!sw || b.items[id]) continue;
     b.items[id] = {
-      at: Date.now(),
+      at: now,
       values: sw.items.map((it) => {
         const r = raw[it.rid] || {};
         return { rid: it.rid, exists: !!r.exists, value: r.value == null ? null : r.value };
@@ -151,6 +179,17 @@ function backupSwitches(raw, ids) {
   if (!changed) return b;
   writeBackup(b);
   return b;
+}
+
+/** 写成功之后才记改动时间：「改了还没重启」不能把失败的写入算进去 */
+function markChanged(ids) {
+  const list = (Array.isArray(ids) ? ids : []).filter((id) => BY_ID[id]);
+  if (!list.length) return false;
+  const b = readBackup() || { ver: 1, items: {} };
+  if (!b.changes || typeof b.changes !== 'object') b.changes = {};
+  const now = Date.now();
+  for (const id of list) b.changes[id] = now;
+  return writeBackup(b);
 }
 
 async function applyOps(ops) {
@@ -183,6 +222,7 @@ async function apply(id, mode, confirmed) {
   backupSwitches(r.values, [id]);
   const w = await applyOps(ops);
   if (w.canceled) return w;
+  if (w.ok) markChanged([id]);
   const after = await readRaw();
   return {
     ok: w.ok,
@@ -205,7 +245,37 @@ async function restoreAll(confirmed) {
   }
   const w = await applyOps(ops);
   if (w.canceled) return w;
+  if (w.ok) markChanged(Object.keys(b.items));
   return { ok: w.ok, message: w.message, restored: Object.keys(b.items).length };
+}
+
+/** 只还原指定开关（账本单步撤销用）；成功后把这些开关从备份里摘掉 */
+async function restoreIds(ids, confirmed) {
+  if (confirmed !== true) return { ok: false, message: '未经确认，已拒绝修改' };
+  const list = (Array.isArray(ids) ? ids : []).filter((id) => BY_ID[id]);
+  if (!list.length) return { ok: false, message: '没有指定要还原的开关' };
+  const b = readBackup();
+  if (!b) return { ok: false, message: '还没有备份，无需还原' };
+  const ops = [];
+  const hit = [];
+  for (const id of list) {
+    const rec = b.items[id];
+    if (!rec) continue;
+    hit.push(id);
+    for (const v of rec.values || []) {
+      if (!HIVE_OF[v.rid]) continue;
+      ops.push(v.exists ? { id: v.rid, op: 'set', value: v.value } : { id: v.rid, op: 'del' });
+    }
+  }
+  if (!hit.length) return { ok: false, message: '这些开关没有备份记录，无法还原' };
+  const w = await applyOps(ops);
+  if (w.canceled) return w;
+  if (w.ok) {
+    for (const id of hit) delete b.items[id];
+    writeBackup(b);
+    markChanged(hit);
+  }
+  return { ok: w.ok, message: w.message, restored: hit.length };
 }
 
 /** 当前状态总览（页面渲染用） */
@@ -213,6 +283,7 @@ async function status() {
   const r = await readRaw();
   if (!r.ok) return r;
   const b = readBackup();
+  const boot = bootAt();
   return {
     ok: true,
     admin: r.admin,
@@ -221,6 +292,8 @@ async function status() {
       kind: sw.kind,
       admin: needsAdmin(sw),
       reboot: !!sw.reboot,
+      // 本软件改过、而且改完还没重启 → 界面要明说「现在还是旧状态」
+      pendingReboot: !!sw.reboot && pendingRebootAt(lastChangedAt(b, sw.id), boot),
       options: sw.options || null,
       state: derive(sw, r.values),
       raw: sw.items.map((it) => ({ rid: it.rid, exists: !!(r.values[it.rid] || {}).exists, value: (r.values[it.rid] || {}).value })),
@@ -231,4 +304,4 @@ async function status() {
   };
 }
 
-module.exports = { SWITCHES, status, apply, restoreAll, readRaw, derive, opsFor, already, applyOps, backupSwitches, needsAdmin };
+module.exports = { SWITCHES, status, apply, restoreAll, restoreIds, readRaw, derive, opsFor, already, applyOps, backupSwitches, markChanged, needsAdmin, pendingRebootAt, lastChangedAt, bootAt };

@@ -76,6 +76,62 @@ function setup() {
   const sysres = await scan.scanTarget('windowsUpdateCache');
   check('系统级目标需管理员（不直接读）', sysres.status === 'needs-admin', sysres);
 
+  console.log('== 6. winsxs.spent 时长文案 ==');
+  const winsxs = require('./engine/winsxs');
+  check('42 秒只报秒', winsxs.spent(42) === '42 秒', winsxs.spent(42));
+  check('0.4 秒不显示成 0', winsxs.spent(0.4) === '1 秒', winsxs.spent(0.4));
+  check('缺字段按 1 秒处理', winsxs.spent(undefined) === '1 秒', winsxs.spent(undefined));
+  check('59 秒仍是秒', winsxs.spent(59.4) === '59 秒', winsxs.spent(59.4));
+  check('60 秒进分', winsxs.spent(60) === '1 分 0 秒', winsxs.spent(60));
+  check('192 秒 = 3 分 12 秒', winsxs.spent(192) === '3 分 12 秒', winsxs.spent(192));
+  check('不满一分钟不四舍五入成整分钟', winsxs.spent(90) === '1 分 30 秒', winsxs.spent(90));
+
+  console.log('== 7. 性能基线：对比行与 winsat 报告取数 ==');
+  const baseline = require('./engine/baseline');
+  const GB = 1073741824;
+  const snap = (o) => ({
+    memFree: o.mem,
+    disks: (o.disks || []).map((d) => ({ device: d[0], label: '', free: d[1], total: 10 * GB })),
+    lastBoot: null,
+    bench: o.bench ? { value: o.bench, units: 'MB/s' } : null,
+    benchError: o.err || null,
+  });
+  const rows = baseline.compare(
+    snap({ mem: 4 * GB, disks: [['C:', 10 * GB]], bench: 20 }),
+    snap({ mem: 6 * GB, disks: [['C:', 8 * GB], ['D:', 1 * GB]], bench: 30 })
+  );
+  const row = (k) => rows.find((r) => r.key === k);
+  check('三行齐全：内存 / C 盘 / 4K', rows.length === 4 && !!row('memFree') && !!row('disk:C:') && !!row('bench'), rows.map((r) => r.key));
+  check('空闲内存 +2 GB', row('memFree').diff === 2 * GB, row('memFree'));
+  check('C 盘可用 -2 GB', row('disk:C:').diff === -2 * GB, row('disk:C:'));
+  check('4K 随机读 +10 MB/s', row('bench').diff === 10 && row('bench').units === 'MB/s', row('bench'));
+  check('新出现的盘位另一侧留 null，不当成 0', row('disk:D:').before === null && row('disk:D:').diff === null, row('disk:D:'));
+  const noBench = baseline.compare(snap({ mem: 1, err: 'needs-admin' }), snap({ mem: 2 })).find((r) => r.key === 'bench');
+  check('缺基准值时 bench 行标出读不到的原因', noBench.missing === 'before:needs-admin', noBench);
+  check('两侧都缺时 diff 是 null 而不是 NaN', noBench.diff === null, noBench);
+  check('baseline 为空也出得来行', baseline.compare(null, null).length === 2 && baseline.compare(null, null).every((r) => r.diff === null));
+  check('认得 winsat 的 RandomDisk4kRead', baseline.pickBench([
+    { name: 'SequentialDisk64kRead', value: 500, units: 'MB/s' },
+    { name: 'RandomDisk4kRead', value: 37.5, units: 'MB/s' },
+  ]).value === 37.5);
+  check('名称带连字符也能归一化命中', baseline.pickBench([{ name: 'random-disk-4k-read', value: 12, units: 'MB/s' }]).value === 12);
+  check('只有写测试时不误返回读值', baseline.pickBench([{ name: 'RandomDisk4kWrite', value: 9, units: 'MB/s' }]) === null);
+  check('空报告返回 null', baseline.pickBench([]) === null && baseline.pickBench(undefined) === null);
+
+  console.log('== 8. HAGS：改了还没重启的判定 ==');
+  const game = require('./engine/game');
+  const T0 = 1700000000000;
+  check('改动晚于开机 = 还没生效', game.pendingRebootAt(T0 + 60000, T0) === true);
+  check('改动早于开机 = 已经生效', game.pendingRebootAt(T0 - 60000, T0) === false);
+  check('改动正好等于开机不算 pending', game.pendingRebootAt(T0, T0) === false);
+  check('没有时间戳就不猜', game.pendingRebootAt(0, T0) === false && game.pendingRebootAt(NaN, T0) === false);
+  check('开机时间算不出来就不猜', game.pendingRebootAt(T0 + 1, NaN) === false);
+  check('最近一次改动取 changes', game.lastChangedAt({ changes: { hags: T0 + 5 }, items: { hags: { at: T0 } } }, 'hags') === T0 + 5);
+  check('老备份没有 changes 时退回首次备份时间', game.lastChangedAt({ items: { hags: { at: T0 } } }, 'hags') === T0);
+  check('没改过的开关返回 0（不会误报 pending）', game.lastChangedAt(null, 'hags') === 0 && game.lastChangedAt({ items: {} }, 'hags') === 0);
+  check('bootAt 落在合理范围', Math.abs((Date.now() - game.bootAt()) - os.uptime() * 1000) < 5000);
+  check('白名单里只有 hags 需要重启', game.SWITCHES.filter((s) => s.reboot).map((s) => s.id).join(',') === 'hags');
+
   fs.rmSync(sandbox, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
   console.log(`\n结果: ${pass} 通过 / ${fail} 失败`);

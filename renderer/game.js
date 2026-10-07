@@ -21,6 +21,7 @@
       pick: (n, from, to) => '将把「' + n + '」由 ' + from + ' 改为 ' + to,
       needAdmin: '（需要管理员授权，会弹一次 UAC）',
       needReboot: '（生效需要重启电脑）',
+      pendReboot: '改过了，重启后才生效',
       apply: '应用', cancel: '取消',
       done: (n) => '已修改「' + n + '」',
       unchanged: '当前已是该状态，无需修改',
@@ -49,6 +50,7 @@
       pick: (n, from, to) => 'Change "' + n + '" from ' + from + ' to ' + to,
       needAdmin: ' (needs administrator approval — one UAC prompt)',
       needReboot: ' (a reboot is required to take effect)',
+      pendReboot: 'Changed — takes effect after a reboot',
       apply: 'Apply', cancel: 'Cancel',
       done: (n) => 'Changed "' + n + '"',
       unchanged: 'Already in this state, nothing to do',
@@ -112,11 +114,6 @@
       const desc = el('span', 'game-desc');
       desc.textContent = meta.desc;
       body.appendChild(name); body.appendChild(desc);
-      if (sw.reboot) {
-        const note = el('span', 'game-note');
-        note.textContent = T.needReboot.replace(/^[（(]|[)）]$/g, '');
-        body.appendChild(note);
-      }
       row.appendChild(body);
 
       const cur = el('span', 'badge' + (sw.kind === 'select' ? '' : sw.state === 'on' ? ' safe' : ' off'));
@@ -126,6 +123,12 @@
         const b = el('span', 'badge caution');
         b.textContent = T.backedUp;
         row.appendChild(b);
+      }
+      // 状态徽章是注册表里的值，写下去不等于本次会话生效；没重启就明说还没生效
+      if (sw.pendingReboot) {
+        const p = el('span', 'badge caution');
+        p.textContent = T.pendReboot;
+        row.appendChild(p);
       }
       if (sw.admin) {
         const a = el('span', 'badge admin');
@@ -281,8 +284,10 @@
     render();
   }
 
-  $('gameReload').addEventListener('click', async () => { hidePending(); await load(); render(); });
+  async function reload() { hidePending(); await load(); render(); }
+
+  $('gameReload').addEventListener('click', reload);
   $('gameRestore').addEventListener('click', () => showRestorePending());
 
-  window.game = { ensureLoaded, render, words: t, stateLabel, targetLabel };
+  window.game = { ensureLoaded, render, reload, words: t, stateLabel, targetLabel };
 })();

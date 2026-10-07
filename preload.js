@@ -60,6 +60,27 @@ contextBridge.exposeInMainWorld('optimizer', {
   getPaths: () => invoke('paths:get'),
   openPath: (p) => invoke('shell:openPath', p),
 
+  ledgerList: (limit) => invoke('ledger:list', limit),
+  ledgerUndo: (id, confirmed) => invoke('ledger:undo', id, confirmed),
+  ledgerUndoAll: (confirmed) => invoke('ledger:undoAll', confirmed),
+
+  healthQuick: () => invoke('health:quick'),
+  healthDeep: () => invoke('health:deep'),
+  healthExport: () => invoke('health:export'),
+
+  restorePointStatus: (force) => invoke('restorepoint:status', force),
+  restorePointCreate: (confirmed) => invoke('restorepoint:create', confirmed),
+
+  driversList: () => invoke('drivers:list'),
+  driversRemove: (pubs, confirmed) => invoke('drivers:remove', pubs, confirmed),
+
+  winsxsAnalyze: () => invoke('winsxs:analyze'),
+  winsxsCleanup: (mode, confirmed) => invoke('winsxs:cleanup', mode, confirmed),
+
+  baselineGet: () => invoke('baseline:get'),
+  baselineSnapshot: (slot, withBench) => invoke('baseline:snapshot', slot, withBench),
+  baselineClear: () => invoke('baseline:clear'),
+
   updateGet: () => invoke('update:get'),
   updateCheck: () => invoke('update:check'),
   updateDownload: () => invoke('update:download'),
@@ -70,9 +91,18 @@ contextBridge.exposeInMainWorld('optimizer', {
 
   winMinimize: () => invoke('win:minimize'),
   winClose: () => invoke('win:close'),
+  winHide: () => invoke('win:hide'),
+  winQuit: () => invoke('win:quit'),
+  winCloseAnswer: (choice) => invoke('win:closeAnswer', choice),
+  winCloseReset: () => invoke('win:closeReset'),
   appVersion: () => invoke('app:version'),
-
   onCleanProgress: (cb) => subscribe('clean:progress', cb),
   onFolderProgress: (cb) => subscribe('folders:progress', cb),
   onUpdateState: (cb) => subscribe('update:state', cb),
+  onHealthProgress: (cb) => subscribe('health:progress', cb),
+  onRestorePointState: (cb) => subscribe('restorepoint:state', cb),
+  onWinsxsProgress: (cb) => subscribe('winsxs:progress', cb),
+  onCloseAsk: (cb) => subscribe('win:closeAsk', cb),
+  onWinShow: (cb) => subscribe('win:show', cb),
+  onWinActive: (cb) => subscribe('win:active', cb),
 });

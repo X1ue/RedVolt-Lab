@@ -12,6 +12,9 @@ const state = {
   infoLoaded: false,
   paths: null,
   busy: false,
+  wsAdvice: null,
+  drvGroups: null,
+  drvPicked: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -146,8 +149,12 @@ function switchTab(name) {
   if (name === 'power' && window.power) window.power.ensureLoaded();
   if (name === 'game' && window.game) window.game.ensureLoaded();
   if (name !== 'gpu' && window.gpu && window.gpu.pause) window.gpu.pause();
-  if (name === 'info' && !state.infoLoaded) loadInfo();
-  if (name === 'log') loadLog();
+  if (name === 'info') {
+    if (!state.infoLoaded) loadInfo();
+    // 基线右列默认是实时值，每次进这一页重新采一次
+    loadBaseline();
+  }
+  if (name === 'log') { loadLog(); loadLedger(); }
 }
 
 // ---------- 清理项列表 ----------
@@ -155,7 +162,13 @@ function switchTab(name) {
 function renderTargets(group) {
   const host = $(group === 'disk' ? 'diskList' : 'systemList');
   host.textContent = '';
+  let section = null;
   for (const t of state.targets.filter((x) => x.group === group)) {
+    const sec = t.section || '';
+    if (sec !== section) {
+      section = sec;
+      if (sec) host.appendChild(el('div', 'secLabel', sec));
+    }
     host.appendChild(renderRow(t));
   }
 }
@@ -222,6 +235,11 @@ function refreshButtons() {
   $('startupRefresh').disabled = busy;
   $('folderScan').disabled = busy;
   $('logRefresh').disabled = busy;
+  if ($('wsAnalyze')) $('wsAnalyze').disabled = busy;
+  if ($('wsClean')) $('wsClean').disabled = busy || !wsCanClean();
+  if ($('wsResetBase')) $('wsResetBase').disabled = busy || !wsCanClean();
+  if ($('drvScan')) $('drvScan').disabled = busy;
+  if ($('drvClean')) $('drvClean').disabled = busy || !state.drvPicked.size;
   updateHeroStats();
 }
 
@@ -395,6 +413,227 @@ async function doScanSilent(group) {
   } catch (e) { /* 刷新失败不影响主流程 */ }
 }
 
+// ---------- 组件存储 WinSxS ----------
+
+const WS_LEVEL = { warn: ['DISM 建议清理', 'caution'], good: ['无需清理', 'safe'], info: ['可清可不清', 'off'] };
+
+function wsCanClean() {
+  return !!state.wsAdvice && state.wsAdvice.level === 'warn';
+}
+
+function wsRender(msg, advice) {
+  const body = $('wsBody');
+  body.textContent = '';
+  if (advice) {
+    body.classList.remove('muted');
+    const lv = WS_LEVEL[advice.level] || ['提示', 'off'];
+    const head = el('div', 'ws-advice');
+    head.appendChild(el('span', 'badge ' + lv[1], lv[0]));
+    head.appendChild(el('span', '', advice.title));
+    body.appendChild(head);
+    body.appendChild(el('div', 'ws-detail', advice.detail));
+    if (!wsCanClean()) {
+      body.appendChild(el('div', 'ws-detail',
+        'DISM 没有建议清理，所以清理按钮保持禁用。这不是故障：强行清理要占用十几分钟 CPU 和磁盘，换回的空间通常很小。'));
+    }
+  } else {
+    body.classList.add('muted');
+    body.appendChild(el('div', '', msg || ''));
+  }
+}
+
+async function doWsAnalyze() {
+  if (state.busy) return;
+  setBusy(true, '正在读取 DISM 组件存储报告，需要一次管理员授权……');
+  try {
+    const r = await api.winsxsAnalyze();
+    if (r.ok) {
+      state.wsAdvice = r.advice;
+      wsRender('', r.advice);
+      status('组件存储分析完成（只读，没有改动任何内容）', 'ok');
+    } else {
+      state.wsAdvice = null;
+      wsRender(r.message || '已取消，没有读取组件存储');
+      status(r.canceled ? (r.message || '已取消管理员授权') : (r.message || '组件存储分析失败'), r.canceled ? 'err' : 'err');
+    }
+  } catch (e) {
+    state.wsAdvice = null;
+    wsRender('分析出错: ' + ((e && e.message) || e));
+    status('分析出错: ' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function doWsClean(mode) {
+  if (state.busy) return;
+  if (!wsCanClean()) { status('DISM 没有建议清理，已拒绝执行', 'err'); return; }
+  const deep = mode === 'cleanup-resetbase';
+  const ok = await confirmDialog({
+    title: deep ? '深度清理组件存储？' : '清理组件存储？',
+    desc: deep
+      ? '会执行 DISM /StartComponentCleanup /ResetBase，把所有被取代的组件版本永久移除。清理完成后，已经安装的 Windows 更新将无法卸载（不能再回退到上一个补丁版本）。DISM 可能运行 10–30 分钟甚至更久，中途强行结束有损坏组件存储的风险。'
+      : '会执行 DISM /StartComponentCleanup，移除被取代的组件版本，通常 10–30 分钟。期间请不要关机，也不要强行结束本软件；中途打断 DISM 有损坏组件存储的风险。',
+    items: [{ name: '组件存储 WinSxS', text: deep ? 'StartComponentCleanup /ResetBase' : 'StartComponentCleanup' }],
+    requireAck: deep,
+    okText: deep ? '我已了解，开始深度清理' : '开始清理',
+  });
+  if (!ok) return;
+
+  const box = $('wsProgress');
+  box.classList.remove('hidden');
+  box.textContent = 'DISM 已启动，等待进度……';
+  setBusy(true, '正在清理组件存储，可能需要 10–30 分钟，请不要关闭软件……');
+  try {
+    const r = await api.winsxsCleanup(mode, true);
+    const text = r.ok ? r.message : (r.message || '清理未完成');
+    box.textContent = r.canceled ? '已取消管理员授权，组件存储没有任何改动' : text;
+    status(text, r.ok ? 'ok' : 'err');
+    // 清理之后原来的 DISM 报告就过期了，必须重新分析才能再给建议
+    state.wsAdvice = null;
+    wsRender(r.ok ? '清理已结束。上面的分析结果已经过期，点「分析」重新读取 DISM 报告。' : text);
+    if (r.ok) await refreshFree();
+  } catch (e) {
+    box.textContent = '清理出错: ' + ((e && e.message) || e);
+    status('清理出错: ' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ---------- 旧驱动包 ----------
+
+function drvKey(g) {
+  return String((g && g.orig) || '').toLowerCase();
+}
+
+function drvRender(msg, groups) {
+  const body = $('drvBody');
+  body.textContent = '';
+  if (!groups) {
+    body.classList.add('muted');
+    body.appendChild(el('div', '', msg || ''));
+    return;
+  }
+  if (!groups.length) {
+    body.classList.add('muted');
+    body.appendChild(el('div', '', '驱动库里没有发现重复的驱动包，不需要处理。'));
+    return;
+  }
+  body.classList.remove('muted');
+  for (const g of groups) {
+    const key = drvKey(g);
+    const row = el('label', 'drv-row');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.drvPicked.has(key);
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.drvPicked.add(key);
+      else state.drvPicked.delete(key);
+      refreshButtons();
+    });
+    row.appendChild(cb);
+
+    const main = el('div', 'drv-main');
+    main.appendChild(el('div', 'drv-name', String(g.orig || key)));
+    const keep = g.keep || {};
+    main.appendChild(el('div', 'drv-sub drv-keep',
+      `保留 ${keep.pub || '?'} · ${keep.version || '?'} (${keep.date || '日期未知'})`));
+    for (const o of (g.old || [])) {
+      main.appendChild(el('div', 'drv-sub', `可删 ${o.pub} · ${o.version || '?'} (${o.date || '日期未知'})`));
+    }
+    main.appendChild(el('div', 'drv-sub', [g.provider, g.class].filter(Boolean).join(' · ')));
+    row.appendChild(main);
+    body.appendChild(row);
+  }
+}
+
+async function drvScanNow() {
+  const r = await api.driversList();
+  if (!r.ok) {
+    state.drvGroups = null;
+    state.drvPicked.clear();
+    drvRender(r.message || '读取驱动库失败');
+    return { ok: false, message: r.message || '读取驱动库失败' };
+  }
+  state.drvGroups = Array.isArray(r.groups) ? r.groups : [];
+  state.drvPicked.clear();
+  drvRender('', state.drvGroups);
+  return { ok: true, total: r.total, groups: state.drvGroups.length, oldCount: r.oldCount };
+}
+
+async function doDrvScan() {
+  if (state.busy) return;
+  setBusy(true, '正在读取驱动库（只读，不需要管理员授权）……');
+  try {
+    const r = await drvScanNow();
+    if (r.ok) status(`驱动库共 ${r.total} 个包，发现 ${r.groups} 组重复、${r.oldCount} 个旧版本`, 'ok');
+    else status(r.message, 'err');
+  } catch (e) {
+    drvRender('扫描出错: ' + ((e && e.message) || e));
+    status('扫描出错: ' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function doDrvClean() {
+  if (state.busy) return;
+  const picked = (state.drvGroups || []).filter((g) => state.drvPicked.has(drvKey(g)));
+  if (!picked.length) { status('请先勾选要删除的旧驱动包', 'err'); return; }
+  const pubs = [];
+  const items = [];
+  for (const g of picked) {
+    for (const o of (g.old || [])) {
+      pubs.push(o.pub);
+      items.push({ name: `${g.orig} → ${o.pub}`, text: `${o.version || '?'} (${o.date || '日期未知'}) → 保留 ${(g.keep && g.keep.version) || '?'}` });
+    }
+  }
+  const ok = await confirmDialog({
+    title: '删除旧驱动包？',
+    desc: '只从驱动库移除同一个 inf 的旧版本，最新的一份保留。仍被设备使用的包会被 pnputil 自己拒绝，本软件不加 /force、也不加 /uninstall，不会动到正在使用的驱动。删除后本软件无法把它放回去；确实需要时让 Windows 重新联网更新驱动即可。',
+    items,
+    requireAck: true,
+    okText: '确认删除',
+  });
+  if (!ok) return;
+
+  setBusy(true, '正在删除旧驱动包，需要一次管理员授权……');
+  try {
+    const r = await api.driversRemove(pubs, true);
+    if (r.canceled) { status(r.message || '已取消管理员授权，没有删除任何驱动包', 'err'); return; }
+    if (!r.ok) { status(r.message || '删除驱动包失败', 'err'); return; }
+    const parts = [`已删除 ${r.removed.length} 个旧驱动包`];
+    if (r.skipped.length) {
+      parts.push(`${r.skipped.length} 个被系统拒绝：` + r.skipped.map((x) => `${x.pub}（${x.reason}）`).join('；'));
+    }
+    status(parts.join('，'), r.removed.length ? 'ok' : 'err');
+    await drvScanNow();
+  } catch (e) {
+    status('删除出错: ' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function initSystemCards() {
+  $('wsAnalyze').addEventListener('click', doWsAnalyze);
+  $('wsClean').addEventListener('click', () => doWsClean('cleanup'));
+  $('wsResetBase').addEventListener('click', () => doWsClean('cleanup-resetbase'));
+  $('drvScan').addEventListener('click', doDrvScan);
+  $('drvClean').addEventListener('click', doDrvClean);
+  api.onWinsxsProgress((p) => {
+    const box = $('wsProgress');
+    if (!box || !p) return;
+    box.classList.remove('hidden');
+    const sec = Math.max(0, Math.round(Number(p.seconds) || 0));
+    const used = `已用 ${Math.floor(sec / 60)} 分 ${String(sec % 60).padStart(2, '0')} 秒`;
+    if (p.done) { box.textContent = `DISM 已结束 · ${used}`; return; }
+    const pct = p.percent == null ? null : Number(p.percent).toFixed(1);
+    box.textContent = `正在清理 ${pct == null ? '…' : pct + '%'} · ${used}`;
+  });
+}
+
 // ---------- 浏览器占用提示 ----------
 
 async function refreshBrowserBanner() {
@@ -550,8 +789,146 @@ async function loadInfo() {
   }
 }
 
-function buildFolderRoots() {
-  const sel = $('folderRoot');
+// ---------- 性能基线（优化前 / 优化后） ----------
+
+const BENCH_ERR_TEXT = {
+  canceled: '你取消了管理员授权',
+  'needs-admin': '系统拒绝以管理员运行 winsat',
+  'no-winsat': '这台系统里没有 winsat',
+  'no-datastore': '找不到 winsat 的报告目录',
+  'no-report': '跑完了，但报告里没有磁盘这一项',
+};
+
+function baseLabel(key) {
+  if (key === 'memFree') return '空闲内存';
+  if (key === 'bench') return '磁盘 4K 随机读';
+  if (key.indexOf('disk:') === 0) {
+    const dev = key.slice(5);
+    return /[A-Za-z]:$/.test(dev) ? dev.slice(0, 1) + ' 盘可用' : dev + ' 可用';
+  }
+  return key;
+}
+
+function baseVal(v, kind) {
+  if (v === null || v === undefined) return '—';
+  return kind === 'mbps' ? v.toFixed(1) + ' MB/s' : fmtBytes(v);
+}
+
+function baseDiff(r) {
+  if (r.diff === null || r.diff === undefined) return { text: '', cls: '' };
+  if (r.diff === 0) return { text: '持平', cls: 'flat' };
+  const up = r.diff > 0;
+  const mag = r.kind === 'mbps' ? Math.abs(r.diff).toFixed(1) + ' MB/s' : fmtBytes(Math.abs(r.diff));
+  // 这几项都是越大越好：空闲内存、各盘可用空间、4K 读速率
+  return { text: (up ? '+' : '−') + mag, cls: up ? 'up' : 'down' };
+}
+
+function benchNote(snap) {
+  if (!snap) return '未记录';
+  if (snap.bench) return '';
+  if (!snap.benchError) return '未测';
+  const why = BENCH_ERR_TEXT[snap.benchError] || ('winsat：' + snap.benchError);
+  return '读不到（' + why + '）';
+}
+
+function blTime(iso) {
+  if (!iso) return '读不到';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '读不到' : d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadBaseline() {
+  const host = $('baselineBody');
+  $('baseRefresh').disabled = true;
+  let d = null;
+  try {
+    d = await api.baselineGet();
+  } catch (e) {
+    host.textContent = '读取失败: ' + (e && e.message ? e.message : e);
+    $('baseRefresh').disabled = false;
+    return;
+  }
+  $('baseRefresh').disabled = false;
+
+  const store = d.store || {};
+  const before = store.before || null;
+  const after = store.after || null;
+  host.textContent = '';
+
+  const head = el('div', 'bl-row bl-head');
+  head.appendChild(el('div', 'bl-k', '指标'));
+  head.appendChild(el('div', 'bl-v', before ? '优化前' : '优化前（未记录）'));
+  head.appendChild(el('div', 'bl-v', after ? '优化后' : '现在'));
+  head.appendChild(el('div', 'bl-d', '变化'));
+  host.appendChild(head);
+
+  const rows = d.rows || [];
+  if (!before) {
+    host.appendChild(el('div', 'bl-empty', '还没有记录过「优化前」。按下面的步骤做一遍，这里的数字就能对比。'));
+  }
+  for (const r of rows) {
+    const row = el('div', 'bl-row');
+    // 4K 这一行没数值时，说清是没测、被取消还是读不到，别只留一个破折号
+    const cell = (snap, v) => (r.key === 'bench' && v === null ? (benchNote(snap) || '—') : baseVal(v, r.kind));
+    row.appendChild(el('div', 'bl-k', baseLabel(r.key)));
+    row.appendChild(el('div', 'bl-v', cell(before, r.before)));
+    row.appendChild(el('div', 'bl-v', cell(after || d.live, r.after)));
+    const df = baseDiff(r);
+    row.appendChild(el('div', 'bl-d ' + df.cls, df.text));
+    host.appendChild(row);
+  }
+
+  const meta = el('div', 'bl-meta');
+  meta.appendChild(el('span', '', before
+    ? '优化前记录于 ' + blTime(before.at) + '（当时上次开机 ' + blTime(before.lastBoot) + '）'
+    : '优化前：未记录'));
+  meta.appendChild(el('span', '', after
+    ? '优化后记录于 ' + blTime(after.at) + '（当时上次开机 ' + blTime(after.lastBoot) + '）'
+    : '优化后：未记录，右列是当前实时值'));
+  host.appendChild(meta);
+}
+
+async function snapshotBaseline(slot) {
+  const withBench = $('baseBench').checked;
+  const btns = [$('baseBefore'), $('baseAfter'), $('baseClear'), $('baseRefresh')];
+  for (const b of btns) b.disabled = true;
+  $('baseProgress').textContent = withBench ? '正在跑磁盘实测，可能弹一次 UAC……' : '正在采集……';
+  try {
+    const r = await api.baselineSnapshot(slot, withBench);
+    const err = r && r.store && r.store[slot] && r.store[slot].benchError;
+    status(err ? '已记录，但磁盘实测没成功：' + (BENCH_ERR_TEXT[err] || err) : (slot === 'before' ? '已记录「优化前」' : '已记录「优化后」'), err ? 'err' : 'ok');
+  } catch (e) {
+    status('记录失败: ' + (e && e.message ? e.message : e), 'err');
+  } finally {
+    for (const b of btns) b.disabled = false;
+    $('baseProgress').textContent = '';
+  }
+  await loadBaseline();
+}
+
+function initBaseline() {
+  $('baseBefore').addEventListener('click', () => snapshotBaseline('before'));
+  $('baseAfter').addEventListener('click', () => snapshotBaseline('after'));
+  $('baseRefresh').addEventListener('click', () => loadBaseline());
+  $('baseClear').addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: '清除性能基线',
+      desc: '只删掉本机记录的对比数字，不会改动系统任何设置。',
+      okText: '清除',
+      okClass: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.baselineClear();
+      status('已清除性能基线', 'ok');
+    } catch (e) {
+      status('清除失败: ' + (e && e.message ? e.message : e), 'err');
+    }
+    await loadBaseline();
+  });
+}
+
+function buildFolderRoots() {  const sel = $('folderRoot');
   sel.textContent = '';
   const p = state.paths || {};
   const opts = [
@@ -891,6 +1268,263 @@ async function doMemTrim() {
   }
 }
 
+// ---------- 变更记录与撤销 ----------
+
+function fmtStamp(ms) {
+  const d = new Date(Number(ms) || Date.now());
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 撤销之后让相关页面重新读取，避免界面还停在旧状态 */
+async function refreshSources(list) {
+  const s = new Set((list || []).map((x) => String(x)));
+  try {
+    if (s.has('启动项')) await loadStartup();
+    if (s.has('游戏开关') || s.has('一键优化')) { if (window.game) await window.game.reload(); }
+    if (s.has('电源优化') || s.has('一键优化')) { if (window.power) await window.power.reload(); }
+    if (s.has('显卡优化') || s.has('一键优化')) { if (window.gpu) await window.gpu.reload(); }
+    if (s.has('一键优化') && window.tiers) await window.tiers.refreshInfo();
+  } catch (e) { /* 页面刷新失败不影响撤销本身的结果 */ }
+}
+
+function ledgerRow(e) {
+  const cls = e.status === 'undone' ? ' undone' : e.status === 'failed' ? ' failed' : '';
+  const row = el('div', 'lrow' + cls);
+  row.appendChild(el('span', 'lwhen', fmtStamp(e.at)));
+
+  const main = el('div', 'lmain');
+  const title = el('div', 'ltitle');
+  title.appendChild(el('span', 'lsrc', e.source || '其他'));
+  title.appendChild(document.createTextNode(e.label || '（无描述）'));
+  main.appendChild(title);
+  main.appendChild(el('div', 'lhint', e.status === 'undone' ? '已按记录里的原值撤销' : (e.undoHint || '')));
+  if (e.error) main.appendChild(el('div', 'lerr', '撤销失败：' + e.error));
+  row.appendChild(main);
+
+  const acts = el('div', 'lacts');
+  if (e.status === 'applied' && e.undo) {
+    const b = el('button', 'btn ghost small', '撤销');
+    b.addEventListener('click', () => doUndo(e, b));
+    acts.appendChild(b);
+  } else if (e.status === 'failed') {
+    const b = el('button', 'btn ghost small', '重试');
+    b.addEventListener('click', () => doUndo(e, b));
+    acts.appendChild(b);
+  } else if (e.status === 'undone') {
+    acts.appendChild(el('span', 'lstate ok', '已撤销'));
+  } else {
+    acts.appendChild(el('span', 'lstate no', '无法撤销'));
+  }
+  row.appendChild(acts);
+  return row;
+}
+
+async function loadLedger() {
+  const host = $('ledgerList');
+  let r;
+  try {
+    r = await api.ledgerList(200);
+  } catch (e) {
+    host.textContent = '';
+    host.appendChild(el('div', 'ledger-empty', '读取变更记录失败: ' + ((e && e.message) || e)));
+    return;
+  }
+  const st = r.stats || {};
+  $('ledgerStats').textContent = `共 ${st.total || 0} 条记录 · 生效中 ${st.applied || 0} · 其中可撤销 ${st.undoable || 0} · 已撤销 ${st.undone || 0}` +
+    (st.failed ? ` · 撤销失败 ${st.failed}` : '');
+  host.textContent = '';
+  const list = r.entries || [];
+  if (!list.length) {
+    host.appendChild(el('div', 'ledger-empty', '还没有改动记录。清理、改开关、切电源计划、改 N 卡设置、禁用启动项，都会在这里留一条。'));
+    return;
+  }
+  for (const e of list) host.appendChild(ledgerRow(e));
+}
+
+async function doUndo(e, btn) {
+  if (state.busy) return;
+  const yes = await confirmDialog({
+    title: '撤销这条改动',
+    desc: '按这条记录里存的原值精确写回，只影响这一项，其它改动保持不变。HKLM 项（如 HAGS）会弹一次管理员授权。',
+    items: [{ name: `${e.source || ''} · ${e.label || ''}`, text: fmtStamp(e.at) }],
+    requireAck: false,
+    okText: '确认撤销',
+    okClass: 'primary',
+  });
+  if (!yes) return;
+  if (btn) btn.disabled = true;
+  setBusy(true, '正在撤销…');
+  try {
+    const r = await api.ledgerUndo(e.id, true);
+    if (r && r.ok) {
+      status('已撤销：' + (e.label || ''), 'ok');
+      await refreshSources([e.source]);
+    } else {
+      status('撤销失败：' + ((r && r.message) || '未知错误'), 'err');
+    }
+  } catch (err) {
+    status('撤销失败：' + ((err && err.message) || err), 'err');
+  } finally {
+    setBusy(false);
+    await loadLedger();
+  }
+}
+
+async function doUndoAll() {
+  if (state.busy) return;
+  let r0 = null;
+  try { r0 = await api.ledgerList(500); } catch (e) { r0 = null; }
+  const todo = ((r0 && r0.entries) || []).filter((x) => x.status === 'applied' && x.undo);
+  if (!todo.length) { status('没有可撤销的变更', 'err'); return; }
+  const yes = await confirmDialog({
+    title: '全部撤销',
+    desc: `按时间倒序撤销 ${todo.length} 条可撤销的改动，逐条写回记录里的原值。删文件类记录不在其中（物理上无法恢复）。过程中可能弹多次管理员授权。`,
+    items: todo.slice(0, 14).map((x) => ({ name: `${x.source || ''} · ${x.label || ''}`, text: fmtStamp(x.at) })),
+    requireAck: true,
+    okText: '确认全部撤销',
+    okClass: 'danger',
+  });
+  if (!yes) return;
+  setBusy(true, '正在逐条撤销…');
+  try {
+    const r = await api.ledgerUndoAll(true);
+    const done = (r && r.undone) || 0;
+    const bad = (r && r.failed) || [];
+    if (r && r.ok) status(`已撤销 ${done} 条改动`, 'ok');
+    else status(`撤销 ${done} 条，失败 ${bad.length} 条${bad.length ? '：' + bad[0] : ''}`, 'err');
+    await refreshSources(todo.map((x) => x.source));
+  } catch (e) {
+    status('撤销失败：' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+    await loadLedger();
+  }
+}
+
+// ---------- 系统还原点（改前兜底） ----------
+
+function rpText(s) {
+  if (!s) return '还原点：读取失败';
+  if (s.canceled) return '还原点：' + (s.message || '已取消管理员授权，未读取');
+  if (!s.available) return '还原点：本机不可用 —— ' + (s.reason || s.message || '未知原因');
+  const last = s.last
+    ? `最近一个「${s.last.description || '无描述'}」@ ${String(s.last.at || '').slice(0, 16).replace('T', ' ')}`
+    : '还没有还原点';
+  const sh = s.shadow && s.shadow.max ? `；卷影存储已用 ${fmtBytes(s.shadow.used)} / 上限 ${fmtBytes(s.shadow.max)}` : '';
+  return `还原点：共 ${s.count || 0} 个，${last}${sh}`;
+}
+
+async function showRestorePoint() {
+  if (state.busy) return;
+  setBusy(true, '正在读取还原点状态，需要一次管理员授权…');
+  try {
+    // 传 false：60 秒内的重复点击复用上次结果，不再弹第二次 UAC
+    const s = await api.restorePointStatus(false);
+    $('rpState').textContent = rpText(s);
+  } catch (e) {
+    $('rpState').textContent = '还原点：读取失败 ' + ((e && e.message) || e);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function doCreateRestorePoint() {
+  if (state.busy) return;
+  const yes = await confirmDialog({
+    title: '创建系统还原点',
+    desc: '调用 Windows 自带的 Checkpoint-Computer 建一个还原点，只写系统还原数据，不动任何用户文件，需要一次管理员授权。注意 Windows 限制 24 小时内只能建一个，间隔内会失败并把原因告诉你。',
+    items: [],
+    requireAck: false,
+    okText: '确认创建',
+    okClass: 'primary',
+  });
+  if (!yes) return;
+  setBusy(true, '正在创建还原点，可能要一两分钟…');
+  try {
+    const r = await api.restorePointCreate(true);
+    $('rpState').textContent = '还原点：' + (r.reason || (r.ok ? '已就绪' : '未创建'));
+    if (r && r.ok) status(r.created ? '还原点已创建' : '已复用现有还原点', 'ok');
+    else status('创建还原点失败：' + ((r && r.reason) || '未知错误'), 'err');
+  } catch (e) {
+    status('创建还原点失败：' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ---------- 只读体检报告 ----------
+
+const SEV_LABEL = { risk: '风险', warn: '建议处理', info: '供参考', good: '正常' };
+
+function renderHealth(r) {
+  const host = $('healthBody');
+  host.textContent = '';
+  if (!r || !r.ok || !Array.isArray(r.findings)) {
+    host.appendChild(el('div', 'health-idle', (r && r.message) || '体检失败，没有拿到结果'));
+    $('healthCounts').textContent = '';
+    $('healthExport').classList.add('hidden');
+    return;
+  }
+  const c = r.counts || {};
+  $('healthCounts').textContent = `${r.quick ? '快速' : '深度'} · 风险 ${c.risk || 0} · 建议处理 ${c.warn || 0} · 供参考 ${c.info || 0} · 正常 ${c.good || 0}`;
+  $('healthExport').classList.remove('hidden');
+  if (r.message) host.appendChild(el('div', 'health-idle', r.message));
+  for (const x of r.findings) {
+    const box = el('div', 'finding ' + (x.severity || 'info'));
+    const head = el('div', 'fhead');
+    head.appendChild(el('span', 'fsev', SEV_LABEL[x.severity] || String(x.severity || '')));
+    head.appendChild(el('span', 'ftitle', x.title));
+    head.appendChild(el('span', 'fgroup', x.group || ''));
+    box.appendChild(head);
+    if (x.detail) box.appendChild(el('div', 'fdetail', x.detail));
+    if (x.tip) box.appendChild(el('div', 'ftip', '建议：' + x.tip));
+    host.appendChild(box);
+  }
+}
+
+async function runHealth(deep) {
+  if (state.busy) return;
+  const btn = $(deep ? 'healthDeep' : 'healthQuick');
+  btn.disabled = true;
+  setBusy(true, deep ? '深度体检中，会弹一次管理员授权…' : '正在体检（只读）…');
+  $('healthCounts').textContent = deep ? '正在请求管理员授权…' : '正在采集系统信息…';
+  try {
+    const r = deep ? await api.healthDeep() : await api.healthQuick();
+    renderHealth(r);
+    if (r && r.ok) status('体检完成', 'ok');
+    else status('体检失败：' + ((r && r.message) || '未知错误'), 'err');
+  } catch (e) {
+    renderHealth({ ok: false, message: (e && e.message) || String(e) });
+    status('体检失败：' + ((e && e.message) || e), 'err');
+  } finally {
+    btn.disabled = false;
+    setBusy(false);
+  }
+}
+
+function openHealth() {
+  $('healthModal').classList.remove('hidden');
+  if (!$('healthBody').childNodes.length) {
+    $('healthBody').appendChild(el('div', 'health-idle', '点上面的「快速体检」或「深度体检」开始。全程只读，不改任何设置、不删任何文件。'));
+  }
+}
+
+async function doHealthExport() {
+  if (state.busy) return;
+  setBusy(true, '正在导出体检报告…');
+  try {
+    const r = await api.healthExport();
+    if (r && r.ok) status('已保存到 ' + r.path, 'ok');
+    else if (r && r.canceled) status('已取消保存');
+    else status('导出失败：' + ((r && r.message) || '未知错误'), 'err');
+  } catch (e) {
+    status('导出失败：' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
 // ---------- 初始化 ----------
 
 async function init() {
@@ -949,6 +1583,25 @@ async function init() {
     if (state.paths && state.paths.logPath) await api.openPath(state.paths.logPath);
   });
 
+  $('ledgerRefresh').addEventListener('click', loadLedger);
+  $('ledgerUndoAll').addEventListener('click', doUndoAll);
+  $('rpStatus').addEventListener('click', showRestorePoint);
+  $('rpCreate').addEventListener('click', doCreateRestorePoint);
+
+  $('homeHealth').addEventListener('click', openHealth);
+  $('healthQuick').addEventListener('click', () => runHealth(false));
+  $('healthDeep').addEventListener('click', () => runHealth(true));
+  $('healthExport').addEventListener('click', doHealthExport);
+  $('healthClose').addEventListener('click', () => $('healthModal').classList.add('hidden'));
+  api.onHealthProgress((p) => {
+    if (p && p.message) $('healthCounts').textContent = p.message;
+  });
+  api.onRestorePointState((s) => {
+    if (!s) return;
+    if (s.phase === 'working') status(s.message || '正在创建还原点…');
+    else $('rpState').textContent = '还原点：' + (s.reason || '');
+  });
+
   api.onCleanProgress((p) => {
     if (p.phase === 'start') {
       const t = state.byId.get(p.id);
@@ -968,12 +1621,48 @@ async function init() {
 
   renderTargets('disk');
   renderTargets('system');
+  initSystemCards();
   refreshButtons();
   await refreshFree();
   await refreshBrowserBanner();
   startMonitor();
   initSettings();
+  initBaseline();
   if (window.tiers) await window.tiers.ensureLoaded();
+}
+
+// ---------- 关闭方式：自绘询问弹窗 ----------
+
+// 主进程在 close 事件里拦下 ✕ / Alt+F4 后通知这里。不用系统消息框：
+// 那个弹出来是 Windows 的样式，和整个界面的风格是两套。
+function closeAsk() {
+  const modal = $('closeModal');
+  const remember = $('closeRemember');
+  remember.checked = false;
+  modal.classList.remove('hidden');
+
+  const answer = (choice) => {
+    if (remember.checked) {
+      api.winCloseAnswer(choice).then(refreshCloseBehavior).catch(() => {});
+    }
+    modal.classList.add('hidden');
+    // 走 hide/quit 两个专用通道：winClose 会被主进程的 close 监听再拦一次，等于问了又问
+    if (choice === 'quit') api.winQuit();
+    else api.winHide();
+  };
+  const cancel = () => modal.classList.add('hidden');
+  $('closeHide').onclick = () => answer('hide');
+  $('closeQuit').onclick = () => answer('quit');
+  $('closeCancel').onclick = cancel;
+}
+
+function refreshCloseBehavior() {
+  return api.settingsGet().then((s) => {
+    const remembered = s.closeRemember === true && (s.closeBehavior === 'hide' || s.closeBehavior === 'quit');
+    const label = $('setCloseBehavior');
+    label.textContent = !remembered ? '每次询问' : (s.closeBehavior === 'hide' ? '最小化到后台' : '彻底退出');
+    $('setCloseReset').classList.toggle('hidden', !remembered);
+  });
 }
 
 // ---------- 软件设置 ----------
@@ -986,10 +1675,12 @@ async function initSettings() {
   if (window.bgFx) window.bgFx.setEnabled(s.fx !== false);
   $('setFx').checked = s.fx !== false;
   $('setAutoUpdate').checked = s.autoUpdate !== false;
+  $('setRestorePoint').checked = s.autoRestorePoint === true;
   $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
 
   $('openSettings').addEventListener('click', () => {
     $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
+    refreshCloseBehavior().catch(() => {});
     modal.classList.remove('hidden');
   });
   $('settingsClose').addEventListener('click', () => modal.classList.add('hidden'));
@@ -1007,6 +1698,28 @@ async function initSettings() {
   });
   $('setAutoUpdate').addEventListener('change', async () => {
     await api.settingsSet({ autoUpdate: $('setAutoUpdate').checked });
+  });
+  $('setRestorePoint').addEventListener('change', async () => {
+    const on = $('setRestorePoint').checked;
+    await api.settingsSet({ autoRestorePoint: on });
+    status(on ? '已开启：应用一键优化前会先建还原点（需一次管理员授权）' : '已关闭：应用一键优化前不再自动建还原点', 'ok');
+  });
+
+  $('setCloseReset').addEventListener('click', async () => {
+    await api.winCloseReset();
+    refreshCloseBehavior().catch(() => {});
+    status('已恢复：下次关闭程序时会重新询问', 'ok');
+  });
+  refreshCloseBehavior().catch(() => {});
+  api.onCloseAsk(closeAsk);
+  // 从托盘唤回时补一次翻译：隐藏期间切过语言的话在这里兜住
+  api.onWinShow(() => { if (window.i18n) window.i18n.apply(); });
+  // 收起/最小化时停工，回到前台再续：看不见还采样、画动画只是白烧资源
+  api.onWinActive((on) => {
+    if (window.bgFx) window.bgFx.setPaused(!on);
+    const cur = document.querySelector('.tab.active');
+    if (!on) { stopMonitor(); return; }
+    if (cur && cur.dataset.tab === 'home') startMonitor();
   });
 
   try {
