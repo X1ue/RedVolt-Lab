@@ -1,11 +1,19 @@
 param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+if ($Payload -notmatch '^[A-Za-z]:\\') {
+    . (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+    Initialize-SecureIpc | Out-Null
+}
 
 $result = [pscustomobject]@{ ok = $false; message = ''; backupFile = '' }
 
 try {
-    $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Payload -match '^[A-Za-z]:\\') {
+        $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    } else {
+        $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+    }
     $it = $req.item
     if (-not $it) { throw 'missing item' }
 

@@ -1,6 +1,8 @@
 ﻿param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+. (Join-Path $PSScriptRoot '..\engine\ps\secure-ipc.ps1')
+Initialize-SecureIpc | Out-Null
 
 # 提权进程拥有管理员权限，因此这里独立再做一次白名单校验（不信任调用方传入的路径）
 $Allowed = @(
@@ -61,7 +63,11 @@ function Remove-DirContents([string]$Path) {
 $result = [pscustomobject]@{ ok = $true; message = ''; results = @() }
 
 try {
-    $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Payload -match '^[A-Za-z]:\\') {
+        $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    } else {
+        $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+    }
     $list = New-Object System.Collections.ArrayList
 
     foreach ($t in $req.targets) {

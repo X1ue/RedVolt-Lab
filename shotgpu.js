@@ -28,10 +28,10 @@ app.whenReady().then(() => {
     console.log('picked=' + picked);
     await wait(3000);
     await shot('gpu-detail.png');
-    await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+    await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
     await wait(1200);
     await shot('gpu-en.png');
-    await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+    await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
     finish(0);
   }, 800);
 });

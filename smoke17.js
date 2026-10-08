@@ -68,7 +68,7 @@ async function probe(win) {
   expect('窗口全程隐藏', !win.isVisible());
 
   // 先切英文，再体检：渲染时必须按当前语言出模板
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(600);
   await ev('document.getElementById("homeHealth").click()');
   await wait(300);
@@ -102,7 +102,7 @@ async function probe(win) {
   log('sampleEn=' + (await ev('JSON.stringify([...document.querySelectorAll("#healthBody .finding")].slice(0,3).map(x => x.textContent.slice(0,150)))')));
 
   // 切回中文：同一份结论要重新渲染成中文
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(900);
   const bodyZh = await ev('document.getElementById("healthBody").textContent');
   log('sampleZh=' + JSON.stringify(bodyZh.slice(0, 160)));

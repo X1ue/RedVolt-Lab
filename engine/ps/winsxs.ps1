@@ -1,6 +1,8 @@
 param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+. (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+Initialize-SecureIpc | Out-Null
 
 function To-Bytes([double]$N, [string]$Unit) {
     switch ($Unit.ToLower()) {
@@ -22,7 +24,11 @@ function Write-ProgressFile([string]$Path, [string]$Json) {
 $result = @{ ok = $true; error = ''; action = '' }
 
 try {
-    $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Payload -match '^[A-Za-z]:\\') {
+        $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    } else {
+        $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+    }
     $result.action = [string]$req.action
     $prog = [string]$req.progress
 

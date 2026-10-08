@@ -1,6 +1,10 @@
 param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+if ($Payload -notmatch '^[A-Za-z]:\\') {
+    . (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+    Initialize-SecureIpc | Out-Null
+}
 
 # pnputil labels follow the OS UI language, so parse by position and by value shape
 # instead of by label text. Field order inside a block is fixed across locales.
@@ -67,7 +71,11 @@ function Get-DuplicateGroups($Pkgs) {
 $result = @{ ok = $true; error = ''; action = '' }
 
 try {
-    $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Payload -match '^[A-Za-z]:\\') {
+        $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    } else {
+        $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+    }
     $result.action = [string]$req.action
 
     if ($req.action -eq 'list') {

@@ -122,7 +122,7 @@ async function probe(win) {
     const cs = getComputedStyle(document.documentElement);
     const v = (k) => cs.getPropertyValue(k).trim();
     const logo = document.querySelector('.logo');
-    const sel = document.getElementById('setTheme');
+    const sel = document.getElementById('themeSel');
     return {
       dataset: document.documentElement.dataset.theme || '(unset)',
       accent: v('--accent'), accentRgb: v('--accent-rgb'), bg: v('--bg'), panel: v('--panel'),
@@ -131,6 +131,10 @@ async function probe(win) {
       logoSrc: logo ? logo.getAttribute('src') : null,
       fxTheme: window.bgFx ? window.bgFx.theme : null,
       sel: sel ? { value: sel.value, opts: [...sel.options].map((o) => o.value + '=' + o.textContent) } : null,
+      hasLangSel: !!document.getElementById('langSel'),
+      hasSetTheme: !!document.getElementById('setTheme'),
+      setLangExists: !!document.getElementById('setLang'),
+      selTitle: sel ? sel.getAttribute('title') : null,
       status: (document.getElementById('status') || {}).textContent || '',
       modalOpen: !document.getElementById('settingsModal').classList.contains('hidden'),
     };
@@ -167,7 +171,22 @@ async function probe(win) {
   expect('bootUrlCarriesTheme', /[?&]theme=dark/.test(win.webContents.getURL()), win.webContents.getURL());
   expect('bootWindowIconIsDefault', iconHits('win_ctor', 'icon.ico') >= 1, iconCalls.filter((c) => c.where === 'win_ctor'));
 
-  // ---------- 2. 设置弹窗里的「界面主题：暗红 / 亮蓝」 ----------
+  // ---------- 2. 顶栏「界面主题：暗红 / 亮蓝」，语言只留在设置弹窗 ----------
+  const place = await ev0(`(() => {
+    const t = document.getElementById('themeSel'), l = document.getElementById('langSel'), s = document.getElementById('setTheme');
+    return {
+      themeInHeader: !!t && !!t.closest('header'),
+      themeClass: t ? t.className : null,
+      langSelGone: !l, setThemeGone: !s,
+      setLangInModal: !!document.getElementById('setLang') && !!document.getElementById('setLang').closest('#settingsModal'),
+    };
+  })()`);
+  expect('themeSelLivesInHeader', place.themeInHeader, place);
+  expect('themeSelKeepsHeaderStyleHook', /(^|\s)theme-sel(\s|$)/.test(place.themeClass || ''), place);
+  expect('headerLangSelRemoved', place.langSelGone, place);
+  expect('modalSetThemeRemoved', place.setThemeGone, place);
+  expect('langStillInSettings', place.setLangInModal, place);
+
   await ev0('document.getElementById("openSettings").click()');
   await wait(300);
   s = await snap(win);
@@ -177,7 +196,7 @@ async function probe(win) {
 
   // ---------- 3. 切亮蓝：整套 token 换冷色，语义色一个都不动 ----------
   const ev = (js) => win.webContents.executeJavaScript(js, true);
-  await ev('(() => { const x = document.getElementById("setTheme"); x.value = "blue"; x.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const x = document.getElementById("themeSel"); x.value = "blue"; x.dispatchEvent(new Event("change")); })()');
   await wait(800);
   s = await snap(win);
   expect('blueDataTheme', s.dataset === 'blue', s.dataset);
@@ -269,6 +288,8 @@ async function probe(win) {
     expect('wakeWindowIconBlue', iconHits('win_ctor', 'icon-blue.ico') >= 1, iconCalls.filter((c) => c.where === 'win_ctor'));
     s = await snap(woken);
     expect('wakeNoFlashBlue', s.dataset === 'blue', s.dataset);
+    // 重建页面的顶栏下拉必须由 bootstrap 那次 applyTheme 同步好，不等 initSettings 的异步 IPC
+    expect('wakeHeaderSelShowsBlue', s.sel && s.sel.value === 'blue', s.sel);
     expect('wakeFxBlue', s.fxTheme === 'blue', s.fxTheme);
     expect('wakeLogoBlue', s.logoSrc === 'icon-blue.png', s.logoSrc);
     expect('wakeNoInitError', s.status.indexOf('初始化失败') < 0, s.status);
@@ -295,7 +316,7 @@ async function probe(win) {
       }
     })();
     expect('wakeSettingsWired', settingsReady);
-    await ew('(() => { const x = document.getElementById("setTheme"); x.value = "dark"; x.dispatchEvent(new Event("change")); })()');
+    await ew('(() => { const x = document.getElementById("themeSel"); x.value = "dark"; x.dispatchEvent(new Event("change")); })()');
     await wait(900);
     s = await snap(woken);
     expect('revertDataThemeCleared', s.dataset === '(unset)', s.dataset);
@@ -306,17 +327,16 @@ async function probe(win) {
     expect('trayIconFollowsLive', iconHits('tray_setImage', 'icon.ico') >= 1, iconCalls.filter((c) => c.where === 'tray_setImage'));
     expect('semanticColorsStableAcrossRevert', s.safe === '#4cc07c' && s.caution === '#e0a33e' && s.danger === '#ff5c5c', { safe: s.safe, caution: s.caution, danger: s.danger });
 
-    // ---------- 7. 双语：界面主题 / 暗红 / 亮蓝 都有英文对照 ----------
+    // ---------- 7. 双语：顶栏主题下拉的选项跟着换语言 ----------
     await ew('(() => { const x = document.getElementById("setLang"); x.value = "en"; x.dispatchEvent(new Event("change")); })()');
     await wait(1200);
     const en = await ew(`(() => {
-      const x = document.getElementById('setTheme');
-      const row = x.closest('.set-row');
-      return { label: row.querySelector('span').textContent, opts: [...x.options].map((o) => o.textContent), value: x.value };
+      const x = document.getElementById('themeSel');
+      return { opts: [...x.options].map((o) => o.textContent), value: x.value, title: x.getAttribute('title') };
     })()`);
-    expect('enLabelUiTheme', en.label === 'UI theme', en);
     expect('enOptions', JSON.stringify(en.opts) === JSON.stringify(['Dark red', 'Bright blue']), en.opts);
     expect('enKeepsSelection', en.value === 'dark', en);
+    expect('themeTitleStaysBilingual', en.title === '界面主题 / UI theme', en.title);
     await ew('(() => { const x = document.getElementById("setLang"); x.value = "zh"; x.dispatchEvent(new Event("change")); })()');
     await wait(1200);
   }

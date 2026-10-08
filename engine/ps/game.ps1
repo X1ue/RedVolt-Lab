@@ -1,6 +1,10 @@
 param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+if ($Payload -and $Payload -notmatch '^[A-Za-z]:\\') {
+    . (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+    Initialize-SecureIpc | Out-Null
+}
 
 # Only these registry values may ever be read or written. The elevated run re-checks
 # this table, so a tampered payload cannot reach any other key.
@@ -55,8 +59,10 @@ try {
 } catch { $isAdmin = $false }
 
 $payloadObj = $null
-if ($Payload -and (Test-Path -LiteralPath $Payload)) {
+if ($Payload -and $Payload -match '^[A-Za-z]:\\') {
     $payloadObj = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+} elseif ($Payload) {
+    $payloadObj = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
 }
 $action = 'read'
 if ($payloadObj -and $payloadObj.action) { $action = [string]$payloadObj.action }

@@ -1789,11 +1789,10 @@ function applyTheme(name) {
   const logo = document.querySelector('.logo');
   if (logo) logo.src = theme === 'blue' ? 'icon-blue.png' : 'icon.png';
   refreshSparkColors();
+  // 顶栏下拉是唯一入口：主题在这一个函数里落，选择框也跟着这一处走，省掉两处同步
+  const sel = $('themeSel');
+  if (sel) sel.value = theme;
   return theme;
-}
-
-function currentThemeName() {
-  return document.documentElement.dataset.theme === 'blue' ? 'blue' : 'dark';
 }
 
 // ---------- 软件设置 ----------
@@ -1809,24 +1808,19 @@ async function initSettings() {
   $('setAutoUpdate').checked = s.autoUpdate !== false;
   $('setRestorePoint').checked = s.autoRestorePoint === true;
   $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
-  $('setTheme').value = currentThemeName();
 
   $('openSettings').addEventListener('click', () => {
     $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
-    $('setTheme').value = currentThemeName();
     refreshCloseBehavior().catch(() => {});
     modal.classList.remove('hidden');
   });
   $('settingsClose').addEventListener('click', () => modal.classList.add('hidden'));
 
   $('setLang').addEventListener('change', async () => {
-    const v = $('setLang').value;
-    if (window.i18n) await window.i18n.setLang(v, api);
-    const sel = $('langSel');
-    if (sel) sel.value = v;
+    if (window.i18n) await window.i18n.setLang($('setLang').value, api);
   });
-  $('setTheme').addEventListener('change', async () => {
-    const theme = applyTheme($('setTheme').value);
+  $('themeSel').addEventListener('change', async () => {
+    const theme = applyTheme($('themeSel').value);
     await api.settingsSet({ theme });
     status(theme === 'blue' ? '已切换到亮蓝主题' : '已切换到暗红主题', 'ok');
   });

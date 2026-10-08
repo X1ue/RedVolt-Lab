@@ -1,12 +1,12 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { parseJson } = require('./ps');
 
 let workDir = null;
-
-const BOM = '\uFEFF';
+const elevatedDir = path.join('C:\\ProgramData', 'RedVolt Lab', 'ipc');
 
 function init(userDataPath) {
   workDir = path.join(userDataPath, 'ipc');
@@ -16,6 +16,10 @@ function init(userDataPath) {
 
 function token() {
   return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+function secureToken() {
+  return crypto.randomBytes(16).toString('hex');
 }
 
 function psSingleQuoted(s) {
@@ -69,29 +73,34 @@ async function runWithPayload(scriptPath, payload, timeoutMs = 120000) {
  */
 async function runElevated(scriptPath, payload, timeoutMs = 300000) {
   if (!workDir) throw new Error('admin.init() 未调用');
-  const t = token();
-  const inPath = path.join(workDir, `in-${t}.json`);
-  const outPath = path.join(workDir, `out-${t}.json`);
-  const launcher = path.join(workDir, `elevate-${t}.ps1`);
+  const t = secureToken();
+  const outPath = path.join(elevatedDir, `out-${t}.json`);
+  const payloadJson = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+  if (payloadJson.length > 9000) {
+    return { ok: false, canceled: false, data: null, stderr: '提权参数过大，已拒绝执行' };
+  }
 
-  fs.writeFileSync(inPath, JSON.stringify(payload), 'utf8');
-  const lines = [
+  // 参数直接编码进进程命令行，不落入用户可写的 userData 临时文件。
+  // 路径必须带双引号：Start-Process 把 -ArgumentList 这个字符串原样交给进程，
+  // 而安装目录（RedVolt Lab）和开发目录（RedVolt Code）都含空格，裸路径会被切成两段、提权脚本根本不执行。
+  const outerScript = [
     '$ErrorActionPreference = \'Stop\'',
-    '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
-    `$argLine = '-NoProfile -ExecutionPolicy Bypass -File "' + ${psSingleQuoted(scriptPath)} + '" -Payload "' + ${psSingleQuoted(inPath)} + '" -Out "' + ${psSingleQuoted(outPath)} + '"'`,
+    `$argLine = '-NoProfile -ExecutionPolicy Bypass -File "' + ${psSingleQuoted(scriptPath)} + '" -Payload "' + ${psSingleQuoted(payloadJson)} + '" -Out "' + ${psSingleQuoted(outPath)} + '"'`,
     'try {',
-    "    $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -Verb RunAs -Wait -PassThru -WindowStyle Hidden",
-    "    Write-Output ('EXIT=' + $p.ExitCode)",
+    "  $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -Verb RunAs -Wait -PassThru -WindowStyle Hidden",
+    "  Write-Output ('EXIT=' + $p.ExitCode)",
     '} catch {',
-    "    Write-Output ('ERROR=' + $_.Exception.Message)",
+    "  Write-Output ('ERROR=' + $_.Exception.Message)",
     '}',
-  ];
-  // 必须带 UTF-8 BOM：脚本里内嵌了 userData 路径（可能含中文），
-  // PowerShell 5.1 对无 BOM 文件按 ANSI 读取会把中文路径读成乱码
-  fs.writeFileSync(launcher, BOM + lines.join('\r\n'), 'utf8');
+  ].join('\r\n');
+  const outerEncoded = Buffer.from(outerScript, 'utf16le').toString('base64');
 
   try {
-    const r = await runFile(launcher, [], timeoutMs);
+    const r = await new Promise((resolve) => {
+      execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', outerEncoded],
+        { windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs },
+        (err, stdout, stderr) => resolve({ err, stdout: stdout || '', stderr: (stderr || '').trim() }));
+    });
     const out = r.stdout;
     if (/ERROR=/.test(out)) {
       const msg = out.split('ERROR=')[1].trim();
@@ -110,8 +119,8 @@ async function runElevated(scriptPath, payload, timeoutMs = 300000) {
     }
     return { ok: data.ok !== false, canceled: false, data, stderr: r.stderr };
   } finally {
-    cleanup([inPath, outPath, launcher]);
+    cleanup([outPath]);
   }
 }
 
-module.exports = { init, runWithPayload, runElevated, workDir: () => workDir };
+module.exports = { init, runWithPayload, runElevated, workDir: () => workDir, elevatedWorkDir: () => elevatedDir };

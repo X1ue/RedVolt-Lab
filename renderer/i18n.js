@@ -299,10 +299,10 @@
     '记录失败: ': 'Failed to record: ',
     '清除失败: ': 'Failed to clear: ',
     '界面语言': 'UI language',
-    '界面主题': 'UI theme',
     '暗红': 'Dark red',
     '亮蓝': 'Bright blue',
-    '换主题会同时换背景闪电的配色和托盘/窗口图标。安装程序图标是打包时内嵌进 exe 的，换肤换不到它，这是 Windows 的边界。': 'Switching theme recolours the background lightning and swaps the tray / window icon. The installer icon is baked into the exe at build time and cannot follow the skin - that is a Windows limitation.',
+    '已切换到暗红主题': 'Switched to the dark red theme',
+    '已切换到亮蓝主题': 'Switched to the bright blue theme',
     '背景闪电动效': 'Background lightning effect',
     '启动时自动检查更新': 'Check for updates on startup',
     '极致的性能强化': 'Ultimate Performance Boost',
@@ -792,12 +792,6 @@
     lang = saved && saved.lang === 'en' ? 'en' : 'zh';
     startObserver();
     apply();
-
-    const sel = document.getElementById('langSel');
-    if (sel) {
-      sel.value = lang;
-      sel.addEventListener('change', () => setLang(sel.value, api));
-    }
     return lang;
   }
 

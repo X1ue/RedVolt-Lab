@@ -214,7 +214,7 @@ async function probe(win) {
   await wait(300);
 
   // ---------- 8. 英文界面：新增静态文案必须全部翻译 ----------
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(800);
   await ev('document.querySelector(\'.tab[data-tab="log"]\').click()');
   await wait(900);
@@ -258,7 +258,7 @@ async function probe(win) {
   zhDyn.slice(0, 6).forEach((x) => log('  ZH> ' + x.slice(0, 70)));
   await ev('document.getElementById("healthClose").click()');
   await wait(300);
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(600);
   expect('切回中文正常', (await ev('document.querySelector(\'.tab[data-tab="log"]\').textContent')).indexOf('记录与撤销') >= 0);
 

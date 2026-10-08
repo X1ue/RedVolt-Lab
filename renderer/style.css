@@ -630,12 +630,12 @@ header .dd, header .dd-btn { -webkit-app-region: no-drag; }
 .dd-tick { flex: none; width: 11px; color: var(--accent); visibility: hidden; }
 .dd-item.on .dd-tick { visibility: visible; }
 .dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dd--lang { margin-left: 8px; }
-.dd--lang .dd-btn { padding: 4px 8px; font-size: 12px; }
+.dd--theme { margin-left: 8px; }
+.dd--theme .dd-btn { padding: 4px 8px; font-size: 12px; }
 .dd--game .dd-btn { max-width: 190px; padding: 5px 8px; font-size: 12.5px; border-radius: 7px; background: var(--wash-2); }
 .dd--gpu .dd-btn { min-width: 220px; padding: 6px 9px; font-size: 12.5px; border-radius: 7px; background: var(--field-2); }
 
-.lang { margin-left: 8px; padding: 4px 8px; font-size: 12px; background: var(--panel-2); cursor: pointer; }
+.theme-sel { margin-left: 8px; padding: 4px 8px; font-size: 12px; background: var(--panel-2); cursor: pointer; }
 
 .progress { color: var(--muted); font-size: 12px; }
 

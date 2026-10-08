@@ -240,7 +240,7 @@ async function probe(win) {
   expect('更新下载目录仍放行（EPERM 不再被误判为不存在）', okOne === null || okOne === undefined || okOne === '', okOne);
 
   // ---------- 8. 英文界面：新增静态文案必须全部翻译 ----------
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(900);
   await ev('document.querySelector(\'.tab[data-tab="system"]\').click()');
   await wait(600);
@@ -299,7 +299,7 @@ async function probe(win) {
   log('remainingCJK_driverRows=' + zhDrv.length + ' 条未翻译（按真实驱动数据动态拼接）');
   zhDrv.slice(0, 5).forEach((x) => log('  ZH> ' + x.slice(0, 70)));
 
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(700);
   expect('切回中文正常', (await ev('document.getElementById("tab-system").textContent')).indexOf('组件存储 WinSxS') >= 0);
   expect('切回中文后侧栏也恢复', (await ev('document.querySelector(\'.tab[data-tab="system"]\').textContent')).indexOf('系统级清理') >= 0);

@@ -94,7 +94,7 @@ async function probe(win) {
   await shot(win, 'settings-zh.png');
 
   // 切英文：两块新文案必须整段命中 EXACT，不留中文
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(800);
   log('lang=' + (await ev('window.i18n.lang')));
   const enHero = await ev('document.querySelector(".hero-promise").textContent');
@@ -109,7 +109,7 @@ async function probe(win) {
   await shot(win, 'settings-en.png');
 
   // 切回中文，验证还原（字典是双向记原值的，不能改坏）
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(800);
   log('heroBack=' + (await ev('JSON.stringify(document.querySelector(".hero-promise").textContent)')));
   expect('切回中文还原', (await ev('document.querySelector(".hero-promise").textContent')) === '无自启 · 无遥测 · 无广告 ｜ 每一步都能撤销 ｜ 效果能量化');

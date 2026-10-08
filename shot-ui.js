@@ -70,13 +70,13 @@ app.whenReady().then(async () => {
     await wait(600);
   }
   await shot('01-home-closed');
-  await shot('02-lang-open', 'document.querySelector(".dd--lang .dd-btn").click()');
+  await shot('02-theme-open', 'document.querySelector(".dd--theme .dd-btn").click()');
   await shot('03-lang-closed', 'dropdown.close()');
   await ev('document.querySelector(\'.tab[data-tab="game"]\').click()');
   await wait(2500);
   await shot('04-game-open', 'document.querySelector("#tab-game .dd-btn").click()');
   await ev('dropdown.close()');
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(1500);
   await ev('document.querySelector(\'.tab[data-tab="home"]\').click()');
   await wait(1200);
@@ -85,7 +85,7 @@ app.whenReady().then(async () => {
   await wait(2000);
   await shot('06-game-en-open', 'document.querySelector("#tab-game .dd-btn").click()');
   await ev('dropdown.close()');
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(1200);
   await ev('document.querySelector(\'.tab[data-tab="update"]\').click()');
   await wait(600);

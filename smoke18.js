@@ -174,7 +174,7 @@ async function probe(win) {
   expect('C 取消后按钮还在', (await actionBtns()).length === 1);
 
   // 切英文：模板借用的分组标题与取值名都要跟着换
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(900);
   const btnsEn = await actionBtns();
   log('EN buttons=' + JSON.stringify(btnsEn));

@@ -85,7 +85,7 @@ async function cleanup(mode, confirmed, onProgress) {
   if (mode !== 'cleanup' && mode !== 'cleanup-resetbase') {
     return { ok: false, canceled: false, message: '未知的清理方式' };
   }
-  const dir = admin.workDir();
+  const dir = admin.elevatedWorkDir();
   if (!dir) return { ok: false, canceled: false, message: '工作目录未初始化' };
   const prog = path.join(dir, `winsxs-${Date.now().toString(36)}.json`);
 

@@ -3,6 +3,8 @@ param([string]$Payload, [string]$Out)
 # the tool itself reported. We never invent a number when the test cannot run.
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+. (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+Initialize-SecureIpc | Out-Null
 
 $result = @{
     ok        = $true
@@ -18,7 +20,11 @@ $result = @{
 }
 
 try {
-    $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Payload -match '^[A-Za-z]:\\') {
+        $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+    } else {
+        $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+    }
     $result.action = [string]$req.action
 
     if ($req.action -eq 'bench') {

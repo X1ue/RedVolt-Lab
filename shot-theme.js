@@ -77,7 +77,7 @@ app.whenReady().then(async () => {
     await ev('document.getElementById("eulaEnter").click()');
     await wait(600);
   }
-  const setTheme = (t) => ev(`(() => { const x = document.getElementById('setTheme'); x.value = '${t}'; x.dispatchEvent(new Event('change')); })()`);
+  const setTheme = (t) => ev(`(() => { const x = document.getElementById('themeSel'); x.value = '${t}'; x.dispatchEvent(new Event('change')); })()`);
   await ev('window.bgFx && window.bgFx.setEnabled(true)');
 
   // ---------- 暗红 ----------

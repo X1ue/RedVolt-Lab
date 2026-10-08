@@ -1,6 +1,8 @@
 param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+. (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+Initialize-SecureIpc | Out-Null
 
 # Read-only status + one explicit create action. Nothing else in this script writes to the system.
 
@@ -59,7 +61,13 @@ $result = @{ ok = $true; action = ''; error = ''; code = '' }
 
 try {
     $req = $null
-    if ($Payload) { $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json }
+    if ($Payload) {
+        if ($Payload -match '^[A-Za-z]:\\') {
+            $req = Get-Content -LiteralPath $Payload -Raw -Encoding UTF8 | ConvertFrom-Json
+        } else {
+            $req = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+        }
+    }
     $action = 'status'
     if ($req -and $req.action) { $action = [string]$req.action }
     $result.action = $action

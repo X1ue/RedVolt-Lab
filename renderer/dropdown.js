@@ -129,7 +129,7 @@
   }
 
   function variant(s) {
-    if (s.classList.contains('lang')) return 'dd--lang';
+    if (s.classList.contains('theme-sel')) return 'dd--theme';
     if (s.classList.contains('game-sel')) return 'dd--game';
     if (s.closest('.gpu-set')) return 'dd--gpu';
     return '';

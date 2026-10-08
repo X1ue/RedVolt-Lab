@@ -1,6 +1,8 @@
 param([string]$Payload, [string]$Out)
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+. (Join-Path $PSScriptRoot 'secure-ipc.ps1')
+Initialize-SecureIpc | Out-Null
 
 # Deep, read-only health facts. Everything here needs administrator rights, so it runs in a
 # single elevated pass (one UAC prompt) instead of several separate ones.

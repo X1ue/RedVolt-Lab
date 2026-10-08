@@ -1,6 +1,36 @@
 'use strict';
-// i18n 冒烟：切到 English → 遍历所有页签与只读扫描 → 收集残留中文 → 切回中文验证还原
-const { app, BrowserWindow } = require('electron');
+// smoke7 冒烟：i18n 全标签页英文覆盖 —— 切到 English → 遍历所有页签与只读扫描 → 收集残留中文 → 切回中文验证还原。
+// 窗口全程隐藏（不抢前台），userData 指向临时目录，绝不读写真实设置 / 账本 / 清理记录。
+// 隐藏窗口：electron 的导出属性不可重定义，所以在 Module._load 上包一层 Proxy，
+// 让 main.js 拿到的 BrowserWindow 构造时强制 show:false。
+const Module = require('module');
+const origLoad = Module._load;
+let bwProxy = null;
+let hiddenOk = false;
+Module._load = function (request) {
+  const exp = origLoad.apply(this, arguments);
+  if (request !== 'electron' || !exp || typeof exp.BrowserWindow !== 'function') return exp;
+  if (!bwProxy) {
+    const Real = exp.BrowserWindow;
+    class Hidden extends Real {
+      constructor(o) { super(Object.assign({}, o, { show: false })); }
+    }
+    bwProxy = new Proxy(exp, { get: (t, k) => (k === 'BrowserWindow' ? Hidden : Reflect.get(t, k)) });
+    hiddenOk = true;
+  }
+  return bwProxy;
+};
+
+const { app } = require('electron');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const DEST = path.join(os.tmpdir(), `rv-i18n-smoke-${Date.now()}`);
+fs.mkdirSync(DEST, { recursive: true });
+// 必须在 require('./main.js') 之前：require 就是起真实主进程，顺序写反了会读写用户真实数据
+app.setPath('userData', DEST);
+
 require('./main.js');
 
 const out = [];
@@ -10,14 +40,17 @@ let done = false;
 function log(...a) {
   const line = a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
   out.push(line);
-  process.stdout.write(line + '\n');
+  // 输出被 head 之类提前截断时 stdout 会 EPIPE，这是管道问题不是测试失败，别弹 Electron 错误框
+  try { process.stdout.write(line + '\n'); } catch (e) { if (!e || e.code !== 'EPIPE') throw e; }
 }
+process.stdout.on('error', (e) => { if (!e || e.code !== 'EPIPE') throw e; });
 
 function finish(code) {
   if (done) return;
   done = true;
   log('---- errors ----');
   log(errors.length ? errors.join('\n') : '(none)');
+  log('userDataFiles=' + JSON.stringify(fs.readdirSync(DEST)));
   setTimeout(() => app.exit(code), 200);
 }
 
@@ -34,8 +67,9 @@ async function probe(win) {
   const expect = (name, ok) => { log(name + '=' + ok); if (!ok) problems.push(name); };
 
   await wait(2500);
+  log('hiddenWindow=' + hiddenOk);
 
-  log('langSel=' + (await ev('!!document.getElementById("langSel")')));
+  log('setLang=' + (await ev('!!document.getElementById("setLang")')));
   log('settingsBefore=' + JSON.stringify(await ev('window.optimizer.settingsGet()')));
 
   // 首启免责声明：未同意时必现，勾选后才能进入；同意后写入 settings.eula
@@ -54,7 +88,7 @@ async function probe(win) {
   }
 
   // 切英文
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "en"; s.dispatchEvent(new Event("change")); })()');
   await wait(600);
   log('lang=' + (await ev('window.i18n.lang')));
   log('titleEn=' + (await ev('document.title')));
@@ -213,7 +247,7 @@ async function probe(win) {
   expect('tierCancelHides', await ev('document.getElementById("tierPending").classList.contains("hidden") && document.getElementById("tierList").classList.contains("hidden")'));
   expect('tierNoSnapshotAfterCancel', await ev('window.optimizer.tiersInfo().then(i => !!i.snapshot)') === false);
 
-  expect('langSelectDark', (await ev('getComputedStyle(document.getElementById("langSel")).backgroundColor')) === 'rgb(28, 21, 24)');  expect('browserBannerEn', !/[一-鿿]/.test((await ev('document.getElementById("browserBanner").textContent')).replace(/中文/, '')));
+  expect('themeSelectDark', (await ev('getComputedStyle(document.getElementById("themeSel")).backgroundColor')) === 'rgb(28, 21, 24)');  expect('browserBannerEn', !/[一-鿿]/.test((await ev('document.getElementById("browserBanner").textContent')).replace(/中文/, '')));
   // 过滤清空列表：驱动自带配置名属于真实数据，不参与界面文案残留统计
   await ev('(() => { const f = document.getElementById("gpuFilter"); f.value = "zzz-none"; f.dispatchEvent(new Event("input")); })()');
   await wait(300);
@@ -267,14 +301,14 @@ async function probe(win) {
   })()`);
   const arr = JSON.parse(left);
   // 允许保留中文的几类：语言选项本身、双语 title、磁盘上真实的中文文件名/程序名（不属于界面文案）
-  const OK = [/^中文$/, /界面语言/, /清理记录\.log/, /易语言/, /\.lnk/, /Start Menu/];
+  const OK = [/^中文$/, /界面语言/, /界面主题/, /清理记录\.log/, /易语言/, /\.lnk/, /Start Menu/];
   const bad = arr.filter((x) => !OK.some((re) => re.test(x)));
   log('remainingCJK=' + arr.length + ' unexpected=' + bad.length);
   bad.forEach((x) => log('  ZH> ' + x));
   if (problems.length) log('problems=' + JSON.stringify(problems));
 
   // 切回中文，验证还原
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(800);
   log('langBack=' + (await ev('window.i18n.lang')));
   log('tabZh=' + JSON.stringify(await ev('JSON.stringify([...document.querySelectorAll(".tab")].map(t => t.textContent))')));
@@ -285,13 +319,21 @@ async function probe(win) {
   finish(bad.length === 0 && problems.length === 0 ? 0 : 2);
 }
 
+// show:false 的窗口不一定出现在 getAllWindows() 里，所以用 browser-window-created 事件抓
+let targetWin = null;
+app.on('browser-window-created', (e, w) => { if (!targetWin) targetWin = w; });
+
 app.whenReady().then(() => {
   const waitWin = () => {
-    const wins = BrowserWindow.getAllWindows();
-    if (!wins.length) return setTimeout(waitWin, 200);
-    probe(wins[0]).catch((e) => { errors.push('[probe] ' + (e && e.stack ? e.stack : e)); finish(1); });
+    if (!targetWin) return setTimeout(waitWin, 200);
+    probe(targetWin).catch((e) => { errors.push('[probe] ' + (e && e.stack ? e.stack : e)); finish(1); });
   };
   waitWin();
 });
+
+// 加载期报错时 Electron 不会自己退出，留个硬超时免得白等
+setTimeout(() => {
+  if (!done && !targetWin) { errors.push('[no-window] 20 秒内没出现窗口，主进程可能加载失败'); finish(1); }
+}, 20000);
 
 setTimeout(() => { errors.push('[timeout] 超过 240 秒未完成'); finish(1); }, 240000);

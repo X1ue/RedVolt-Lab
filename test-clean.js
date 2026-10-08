@@ -153,6 +153,9 @@ console.log('== 2. 白名单与边界 ==');
   console.log('== 8. WinSxS 进度轮询（打桩，不跑 DISM）==');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rv-winsxs-test-'));
   admin.init(tmp);
+  const realElevatedWorkDir = admin.elevatedWorkDir;
+  admin.elevatedWorkDir = () => path.join(tmp, 'ipc');
+  fs.mkdirSync(admin.elevatedWorkDir(), { recursive: true });
   const realRunElevated = admin.runElevated;
   let seen = [];
   let payloadSent = null;
@@ -187,6 +190,7 @@ console.log('== 2. 白名单与边界 ==');
     check('非零退出码如实说明可能只清了一半', r1.ok === false && /退出码 1/.test(r1.message) && /一部分/.test(r1.message), r1);
   } finally {
     admin.runElevated = realRunElevated;
+    admin.elevatedWorkDir = realElevatedWorkDir;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 

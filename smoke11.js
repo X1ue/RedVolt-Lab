@@ -62,6 +62,10 @@ async function probe(win) {
 
   const ev = (js) => win.webContents.executeJavaScript(js, true);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 语言下拉框住在设置弹窗里，顶栏那格换成了主题选择器。包装节点是 select 的前一个兄弟，
+  // CSS 表达不了「往前找」，所以统一用这两个表达式定位按钮与当前文字。
+  const LB = 'document.getElementById("setLang").previousElementSibling.querySelector(".dd-btn")';
+  const LCUR = 'document.getElementById("setLang").previousElementSibling.querySelector(".dd-cur")';
 
   await wait(2500);
   log('hiddenWindow=' + hiddenOk);
@@ -75,11 +79,12 @@ async function probe(win) {
   expect('eulaPassed', await ev('document.getElementById("eulaModal").classList.contains("hidden")'));
 
   // ---------- 1. 静态 select 全部被升级成自绘下拉框 ----------
-  const up = await ev(`JSON.stringify(['langSel','folderRoot','setLang'].map(id => {
+  const up = await ev(`JSON.stringify(['themeSel','folderRoot','setLang'].map(id => {
     const s = document.getElementById(id);
     const dd = s && s.previousElementSibling;
     return { id, hasSel: !!s, wrapped: !!(dd && dd.classList.contains('dd')),
       src: !!(s && s.classList.contains('dd-src')),
+      variant: dd ? dd.className : '',
       hidden: s ? getComputedStyle(s).display : '',
       btnLabel: dd && dd.querySelector('.dd-cur') ? dd.querySelector('.dd-cur').textContent : null,
       optLabel: s && s.selectedIndex >= 0 ? (s.options[s.selectedIndex].textContent || '').trim() : '' };
@@ -90,10 +95,21 @@ async function probe(win) {
   expect('三个都包上了 .dd', U.every((x) => x.wrapped), U);
   expect('原生 select 被隐藏（只当数据源）', U.every((x) => x.src && x.hidden === 'none'), U);
   expect('按钮文字跟着选中项走', U.every((x) => x.btnLabel === x.optLabel), U);
+  expect('顶栏主题下拉套用 theme 变体', /(^|\s)dd--theme(\s|$)/.test(U[0].variant), U[0].variant);
+  expect('顶栏语言下拉已经从 DOM 消失', (await ev('!document.getElementById("langSel")')) === true);
 
-  // ---------- 2. 鼠标点开 → 选中 → 真的换语言 ----------
+  // ---------- 2. 鼠标点开语言下拉（在设置弹窗里）→ 选中 → 真的换语言 ----------
   expect('弹层初始不存在', (await ev('document.querySelectorAll(".dd-list").length')) === 0);
-  await ev('document.querySelector(".dd--lang .dd-btn").click()');
+  await ev('document.getElementById("openSettings").click()');
+  // openSettings 的监听是 initSettings 末尾才装的，弹窗能开 = 初始化真的跑完了
+  let modalUp = false;
+  for (let i = 0; i < 30 && !modalUp; i++) {
+    await wait(200);
+    modalUp = await ev('!document.getElementById("settingsModal").classList.contains("hidden")');
+    if (!modalUp) await ev('document.getElementById("openSettings").click()');
+  }
+  expect('设置弹窗已打开（语言下拉在里面）', modalUp);
+  await ev(LB + '.click()');
   await wait(300);
   const pop = await ev(`JSON.stringify((() => {
     const l = document.querySelector('.dd-list');
@@ -118,9 +134,11 @@ async function probe(win) {
   await ev('(() => { const it = [...document.querySelectorAll(".dd-item")].find(i => /English/.test(i.textContent)); it.click(); })()');
   await wait(1200);
   expect('选完弹层自动关闭', (await ev('document.querySelectorAll(".dd-list").length')) === 0);
-  expect('langSel 变成 en', (await ev('document.getElementById("langSel").value')) === 'en');
-  expect('按钮文字同步成 English', (await ev('document.querySelector(".dd--lang .dd-cur").textContent')) === 'English');
+  expect('setLang 变成 en', (await ev('document.getElementById("setLang").value')) === 'en');
+  expect('按钮文字同步成 English', (await ev(LCUR + '.textContent')) === 'English');
   expect('界面真的切成英文了', (await ev('document.querySelector(".tab[data-tab=\\"home\\"]").textContent')).indexOf('Home') >= 0);
+  await ev('document.getElementById("settingsClose").click()');
+  await wait(250);
 
   // ---------- 3. 英文下 Memory 标签不再被进度条压住 ----------
   const overlap = await ev(`JSON.stringify([...document.querySelectorAll('.mon-row')].map(r => {
@@ -200,20 +218,22 @@ async function probe(win) {
   }
 
   // ---------- 7. 键盘操作与 Esc ----------
-  await ev('document.querySelector(".dd--lang .dd-btn").focus()');
-  await ev('(() => { const b = document.querySelector(".dd--lang .dd-btn"); b.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); })()');
+  await ev('document.getElementById("openSettings").click()');
+  await wait(300);
+  await ev(LB + '.focus()');
+  await ev('(() => { const b = ' + LB + '; b.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); })()');
   await wait(300);
   expect('ArrowDown 能展开', (await ev('!!document.querySelector(".dd-list")')) === true);
-  await ev('(() => { const b = document.querySelector(".dd--lang .dd-btn"); b.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); })()');
+  await ev('(() => { const b = ' + LB + '; b.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); })()');
   await wait(300);
   expect('Esc 能关闭', (await ev('!!document.querySelector(".dd-list")')) === false);
 
   // ---------- 8. 代码里赋值 select.value 时按钮要跟着变 ----------
-  await ev('(() => { const s = document.getElementById("langSel"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
+  await ev('(() => { const s = document.getElementById("setLang"); s.value = "zh"; s.dispatchEvent(new Event("change")); })()');
   await wait(1200);
-  expect('程序化赋值后按钮文字同步', (await ev('document.querySelector(".dd--lang .dd-cur").textContent')) === '中文');
+  expect('程序化赋值后按钮文字同步', (await ev(LCUR + '.textContent')) === '中文');
   expect('切回中文正常', (await ev('document.querySelector(\'.tab[data-tab="home"]\').textContent')).indexOf('首页') >= 0);
-  await ev('document.querySelector(".dd--lang .dd-btn").click()');
+  await ev(LB + '.click()');
   await wait(250);
   const zhOn = await ev('JSON.stringify([...document.querySelectorAll(".dd-item")].map(i => i.classList.contains("on")))');
   expect('中文态下勾回到第一个选项', zhOn === '[true,false]', zhOn);
