@@ -7,6 +7,8 @@ const { app } = require('electron');
 // 渲染层只能改白名单里的键，值也逐个校验，避免把任意内容写进 userData
 const ALLOWED = {
   lang: (v) => (v === 'zh' || v === 'en' ? v : null),
+  // 界面主题：暗红（dark，默认）/ 亮蓝（blue）
+  theme: (v) => (v === 'dark' || v === 'blue' ? v : null),
   fx: (v) => (typeof v === 'boolean' ? v : null),
   autoUpdate: (v) => (typeof v === 'boolean' ? v : null),
   // 改档位/开关前是否先建系统还原点（24 小时内已有则复用）

@@ -1143,6 +1143,23 @@ function pushHist(key, v) {
   if (a.length > 60) a.shift();
 }
 
+// canvas 折线不吃 CSS 变量：换主题时把主题层的三色通道读一次缓存起来，
+// 别在每秒的采样里重复算 computed style
+let sparkColors = null;
+
+function refreshSparkColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const accent = (cs.getPropertyValue('--accent-rgb') || '').trim() || '255, 59, 59';
+  const spark = (cs.getPropertyValue('--spark-rgb') || '').trim() || '255, 92, 72';
+  sparkColors = {
+    stroke: 'rgba(' + spark + ',.95)',
+    shadow: 'rgba(' + accent + ',.75)',
+    fill: 'rgba(' + accent + ',.12)',
+  };
+  return sparkColors;
+}
+
+
 // 最近 60 次采样的迷你折线，横轴固定 60 格，不足时从左侧开始画
 function drawSpark(key) {
   const cv = $('spark' + key);
@@ -1165,16 +1182,17 @@ function drawSpark(key) {
     if (i === 0) c.moveTo(px(i), py(data[i]));
     else c.lineTo(px(i), py(data[i]));
   }
-  c.strokeStyle = 'rgba(255,92,72,.95)';
+  const col = sparkColors || refreshSparkColors();
+  c.strokeStyle = col.stroke;
   c.lineWidth = 1.4;
-  c.shadowColor = 'rgba(255,59,59,.75)';
+  c.shadowColor = col.shadow;
   c.shadowBlur = 6;
   c.stroke();
   c.shadowBlur = 0;
   c.lineTo(px(data.length - 1), h);
   c.lineTo(0, h);
   c.closePath();
-  c.fillStyle = 'rgba(255,59,59,.12)';
+  c.fillStyle = col.fill;
   c.fill();
 }
 
@@ -1759,6 +1777,25 @@ function refreshCloseBehavior() {
   });
 }
 
+// ---------- 界面主题 ----------
+
+/** 主题只落在 <html data-theme> 这一处：CSS 靠它换整套色，闪电换调色板，折线换三色通道。 */
+function applyTheme(name) {
+  const theme = name === 'blue' ? 'blue' : 'dark';
+  if (theme === 'blue') document.documentElement.dataset.theme = 'blue';
+  else delete document.documentElement.dataset.theme;
+  if (window.bgFx) window.bgFx.setTheme(theme);
+  // 界面左上角 logo 跟着换：这两张图是同一份美术只转了色相
+  const logo = document.querySelector('.logo');
+  if (logo) logo.src = theme === 'blue' ? 'icon-blue.png' : 'icon.png';
+  refreshSparkColors();
+  return theme;
+}
+
+function currentThemeName() {
+  return document.documentElement.dataset.theme === 'blue' ? 'blue' : 'dark';
+}
+
 // ---------- 软件设置 ----------
 
 async function initSettings() {
@@ -1767,13 +1804,16 @@ async function initSettings() {
   try { s = (await api.settingsGet()) || {}; } catch (e) { /* 读不到就用默认值 */ }
 
   if (window.bgFx) window.bgFx.setEnabled(s.fx !== false);
+  applyTheme(s.theme);
   $('setFx').checked = s.fx !== false;
   $('setAutoUpdate').checked = s.autoUpdate !== false;
   $('setRestorePoint').checked = s.autoRestorePoint === true;
   $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
+  $('setTheme').value = currentThemeName();
 
   $('openSettings').addEventListener('click', () => {
     $('setLang').value = window.i18n ? window.i18n.lang : 'zh';
+    $('setTheme').value = currentThemeName();
     refreshCloseBehavior().catch(() => {});
     modal.classList.remove('hidden');
   });
@@ -1784,6 +1824,11 @@ async function initSettings() {
     if (window.i18n) await window.i18n.setLang(v, api);
     const sel = $('langSel');
     if (sel) sel.value = v;
+  });
+  $('setTheme').addEventListener('change', async () => {
+    const theme = applyTheme($('setTheme').value);
+    await api.settingsSet({ theme });
+    status(theme === 'blue' ? '已切换到亮蓝主题' : '已切换到暗红主题', 'ok');
   });
   $('setFx').addEventListener('change', async () => {
     const on = $('setFx').checked;
@@ -1828,5 +1873,11 @@ async function initSettings() {
     if (v) $('setVersion').textContent = 'v' + v;
   } catch (e) { /* 版本号显示失败留空 */ }
 }
+
+// 主题在首屏 paint 之前就得全部落好（CSS 换色 + 闪电调色板 + logo），否则蓝主题启动先闪一帧暗红。
+// 值由主进程放进 URL query，这里同步应用，不等 initSettings 那次异步 IPC。写在脚本末尾而不是开头，
+// 是因为 applyTheme 要读后面 let 声明的折线颜色缓存；整个脚本体是同一个任务，paint 等它跑完才开始，
+// 所以这个时机和写在第一行一样早。
+if (new URLSearchParams(location.search).get('theme') === 'blue') applyTheme('blue');
 
 init().catch((e) => status('初始化失败: ' + (e && e.message ? e.message : e), 'err'));

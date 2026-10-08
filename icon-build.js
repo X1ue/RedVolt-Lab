@@ -1,14 +1,17 @@
 'use strict';
 // 由黑底发光图生成透明多尺寸 .ico：alpha 取像素亮度（加色发光图的反预乘），小尺寸用 BGRA 位图、256 用 PNG
+// --blue：不重画美术，只把已成品图标（build/icon.png）的暖色像素做色相平移，产出 icon-blue.ico
+//         和 renderer/icon-blue.png（亮蓝主题用）。这条路径直接沿用源图自己的 alpha。
 const fs = require('fs');
 const path = require('path');
 const { PNG } = require('pngjs');
 
 const SRC = process.argv[2];
 const OUT_DIR = process.argv[3] || path.join(__dirname, 'build');
-if (!SRC) { console.error('usage: node icon-build.js <src.png>'); process.exit(1); }
+if (!SRC) { console.error('usage: node icon-build.js <src.png> [outDir] [--solid] [--blue]'); process.exit(1); }
 
 const src = PNG.sync.read(fs.readFileSync(SRC));
+const BLUE = process.argv.includes('--blue');
 
 // 1) 黑底发光图转目标底：
 //    透明模式：a = max(r,g,b)，颜色反预乘
@@ -31,29 +34,69 @@ function roundRectCoverage(px, py, size, r) {
   }
   return hits / 16;
 }
+/** 只动色相：暖色（红/橙/黄，含品红边缘）转到蓝系，白热核心、灰阶高光和暗底一律不碰。 */
+function shiftWarmToBlue(buf) {
+  const SHIFT = 214;                 // #ff3b3b 约 0° → #3d8bff 约 217°
+  for (let i = 0; i < buf.length; i += 4) {
+    const r = buf[i], g = buf[i + 1], b = buf[i + 2];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (!d) continue;                // 灰阶 / 纯白纯黑
+    const l = (max + min) / 510;
+    const s = d / (255 - Math.abs(max + min - 255));
+    if (s < 0.12) continue;
+    let h;
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+    h = (h + 360) % 360;
+    if (h > 70 && h < 300) continue; // 已经是冷色
+    const rgb = hslToRgb((h + SHIFT) % 360, s, l);
+    buf[i] = rgb[0]; buf[i + 1] = rgb[1]; buf[i + 2] = rgb[2];
+  }
+}
+
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  if (h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
 const W = src.width;
 const H = src.height;
 const rgba = Buffer.alloc(W * H * 4);
-for (let i = 0; i < W * H; i++) {
-  const r0 = src.data[i * 4];
-  const g = src.data[i * 4 + 1];
-  const b = src.data[i * 4 + 2];
-  const a = Math.max(r0, g, b);
-  if (SOLID) {
-    const x = i % W;
-    const y = (i / W) | 0;
-    const v = a < 8 ? 0 : 1;
-    rgba[i * 4] = r0 * v;
-    rgba[i * 4 + 1] = g * v;
-    rgba[i * 4 + 2] = b * v;
-    rgba[i * 4 + 3] = Math.round(roundRectCoverage(x, y, W, W * RADIUS_RATIO) * 255);
-    continue;
+if (BLUE) {
+  src.data.copy(rgba);
+  shiftWarmToBlue(rgba);
+} else {
+  for (let i = 0; i < W * H; i++) {
+    const r0 = src.data[i * 4];
+    const g = src.data[i * 4 + 1];
+    const b = src.data[i * 4 + 2];
+    const a = Math.max(r0, g, b);
+    if (SOLID) {
+      const x = i % W;
+      const y = (i / W) | 0;
+      const v = a < 8 ? 0 : 1;
+      rgba[i * 4] = r0 * v;
+      rgba[i * 4 + 1] = g * v;
+      rgba[i * 4 + 2] = b * v;
+      rgba[i * 4 + 3] = Math.round(roundRectCoverage(x, y, W, W * RADIUS_RATIO) * 255);
+      continue;
+    }
+    if (a === 0) { rgba[i * 4 + 3] = 0; continue; }
+    rgba[i * 4] = Math.min(255, Math.round((r0 * 255) / a));
+    rgba[i * 4 + 1] = Math.min(255, Math.round((g * 255) / a));
+    rgba[i * 4 + 2] = Math.min(255, Math.round((b * 255) / a));
+    rgba[i * 4 + 3] = a;
   }
-  if (a === 0) { rgba[i * 4 + 3] = 0; continue; }
-  rgba[i * 4] = Math.min(255, Math.round((r0 * 255) / a));
-  rgba[i * 4 + 1] = Math.min(255, Math.round((g * 255) / a));
-  rgba[i * 4 + 2] = Math.min(255, Math.round((b * 255) / a));
-  rgba[i * 4 + 3] = a;
 }
 
 // 2) 面积平均缩放
@@ -149,7 +192,11 @@ head.writeUInt16LE(0, 0);
 head.writeUInt16LE(1, 2);
 head.writeUInt16LE(entries.length, 4);
 const ico = Buffer.concat([head, ...dir, ...bodies]);
-const outPath = path.join(OUT_DIR, 'icon.ico');
+const stem = BLUE ? 'icon-blue' : 'icon';
+const outPath = path.join(OUT_DIR, stem + '.ico');
+const pngPath = path.join(OUT_DIR, stem + '.png');
 fs.writeFileSync(outPath, ico);
-fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), pngEntry(resize(256), 256));
+fs.writeFileSync(pngPath, pngEntry(resize(256), 256));
+// 界面左上角 logo 读的是 renderer 下那份，和 icon.png 的落点保持一致
+if (BLUE) fs.copyFileSync(pngPath, path.join(__dirname, 'renderer', 'icon-blue.png'));
 console.log('written', outPath, ico.length, 'bytes;', entries.map((e) => e.size).join('/'));

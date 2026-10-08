@@ -94,11 +94,35 @@ function trayText() {
   return TRAY_TEXT[settings.get().lang === 'en' ? 'en' : 'zh'];
 }
 
+// ---------- 主题图标 ----------
+// 托盘和窗口图标是运行时可换的，跟着「界面主题」走；exe 内嵌的那份在打包时就定死了，
+// 资源管理器 / 卸载列表 / 固定到任务栏的图标换不了，这是 Electron 的边界，不是没做。
+const ICON_FILE = { dark: 'icon.ico', blue: 'icon-blue.ico' };
+
+function themeName() {
+  return settings.get().theme === 'blue' ? 'blue' : 'dark';
+}
+
+/** 蓝图标缺文件时退回默认图标：托盘一旦建不出来，hideToBackground 会退化成直接关窗口。 */
+function themeIconPath(name) {
+  const primary = path.join(__dirname, 'build', ICON_FILE[name] || ICON_FILE.dark);
+  if (fs.existsSync(primary)) return primary;
+  const fallback = path.join(__dirname, 'build', ICON_FILE.dark);
+  return fs.existsSync(fallback) ? fallback : null;
+}
+
+function applyThemeIcons(name) {
+  const p = themeIconPath(name === 'blue' ? 'blue' : themeName());
+  if (!p) return;
+  if (tray && !tray.isDestroyed()) tray.setImage(p);
+  if (win && !win.isDestroyed()) win.setIcon(p);
+}
+
 /** 首次进后台才建托盘，平时不给任务栏添图标。图标是 .ico，Windows 原生支持。 */
 function ensureTray() {
   if (tray && !tray.isDestroyed()) return tray;
-  const p = path.join(__dirname, 'build', 'icon.ico');
-  if (!fs.existsSync(p)) return null;
+  const p = themeIconPath(themeName());
+  if (!p) return null;
   tray = new Tray(p);
   const t = trayText();
   tray.setToolTip(t.tip);
@@ -159,7 +183,7 @@ function createWindow(opts = {}) {
   const waking = opts.waking === true;
   rendererBusy = false;            // 新页面必然不忙，清零旧标志，休眠不会永久卡住
   wakingPending = waking;
-  const iconPath = path.join(__dirname, 'build', 'icon.ico');
+  const iconPath = themeIconPath(themeName());
   const bounds = waking && lastBounds ? lastBounds : { width: 1080, height: 780 };
   win = new BrowserWindow({
     x: bounds.x,
@@ -174,7 +198,7 @@ function createWindow(opts = {}) {
     maximizable: false,
     // 唤醒时先不显示，等页面画好再揭，避免用户看到一帧空壳
     show: !waking,
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: iconPath || undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -186,9 +210,12 @@ function createWindow(opts = {}) {
   win.setMenuBarVisibility(false);
   // 靠 URL 参数回原标签页：页面自己从 location.search 读，不等 IPC，没有时序竞争。
   // wake=1 同时告诉渲染层「这是唤醒重建，首屏先别采样」，等露脸的 show 事件再起监控。
+  // theme 也走 query：预加载脚本在沙箱里读不到 settings.json，让渲染层自己读文件更麻烦，
+  // 而主进程手上就有这个值 —— 首屏画出来之前就把主题定死，蓝主题不会先闪一帧暗红。
   const indexPath = path.join(__dirname, 'renderer', 'index.html');
-  if (waking) win.loadFile(indexPath, { query: { wake: '1', tab: lastTab } });
-  else win.loadFile(indexPath);
+  const theme = themeName();
+  if (waking) win.loadFile(indexPath, { query: { wake: '1', tab: lastTab, theme } });
+  else win.loadFile(indexPath, { query: { theme } });
   win.on('closed', () => { win = null; });
   if (waking) {
     let revealed = false;
@@ -840,7 +867,12 @@ ipcMain.handle('baseline:clear', () => ({ store: baseline.write({ before: null, 
 // ==================== 设置（界面语言等） ====================
 
 ipcMain.handle('settings:get', () => settings.get());
-ipcMain.handle('settings:set', (e, patch) => settings.set(patch));
+ipcMain.handle('settings:set', (e, patch) => {
+  const merged = settings.set(patch);
+  // theme 过了白名单校验才落到 merged 里，这里只认已校验的值
+  if (patch && typeof patch === 'object' && 'theme' in patch) applyThemeIcons(merged.theme);
+  return merged;
+});
 ipcMain.handle('app:version', () => app.getVersion());
 
 // ==================== 无边框窗口控制（最小化 / 关闭） ====================

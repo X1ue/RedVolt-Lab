@@ -2,12 +2,37 @@
 
 // 背景闪电（写实向）：云对地主干 + 云内横闪，分形中点位移生成折线；
 // 每道闪电有「主击 + 一次回击」的亮度包络（真实闪电是多次放电），
-// 三层描边（深红外发光 / 橙红中层 / 白热细芯），落地点与云底各有一团闪光，
-// destination-out 做余辉衰减，画布保持透明；关闭时 <html> 加 fx-off，页面纯黑。
+// 三层描边（外发光 / 中层 / 细芯，暗红主题=深红外/橙红/白热，亮蓝主题=深蓝/浅蓝/纯白），
+// 落地点与云底各有一团闪光，destination-out 做余辉衰减，画布保持透明；
+// 关闭时 <html> 加 fx-off，页面纯黑（两套主题都一样）。
 (function () {
   const canvas = document.getElementById('bgFx');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+
+  // 闪电的颜色只能写在 JS 里（canvas 不吃 CSS 变量），所以主题各带一套三色通道 + 闪光色。
+  // 值必须和 style.css 的 --accent-rgb 主题层同调，切换靠 setTheme 换引用，不重建画布。
+  const PALETTES = {
+    dark: {
+      shadow: 'rgba(255,40,40,.9)',
+      glow: '255,32,32',
+      mid: '255,66,44',
+      core: '255,246,240',
+      flashA: '255,96,72',
+      flashB: '220,30,30',
+      flashC: '160,10,10',
+    },
+    blue: {
+      shadow: 'rgba(110,180,255,.9)',
+      glow: '40,120,255',
+      mid: '120,200,255',
+      core: '255,255,255',
+      flashA: '130,195,255',
+      flashB: '40,110,220',
+      flashC: '10,45,120',
+    },
+  };
+  let pal = PALETTES.dark, themeName = 'dark';
 
   let W = 0, H = 0, dpr = 1;
   let bolts = [], flashes = [];
@@ -100,7 +125,7 @@
   function strokePolyline(pts, color, width, blur) {
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
-    ctx.shadowColor = 'rgba(255,40,40,.9)';
+    ctx.shadowColor = pal.shadow;
     ctx.shadowBlur = blur;
     ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
@@ -131,9 +156,9 @@
     for (const f of flashes) {
       const k = 1 - (t - f.born) / f.life;
       const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
-      g.addColorStop(0, 'rgba(255,96,72,' + (f.s * k).toFixed(3) + ')');
-      g.addColorStop(0.45, 'rgba(220,30,30,' + (f.s * 0.4 * k).toFixed(3) + ')');
-      g.addColorStop(1, 'rgba(160,10,10,0)');
+      g.addColorStop(0, 'rgba(' + pal.flashA + ',' + (f.s * k).toFixed(3) + ')');
+      g.addColorStop(0.45, 'rgba(' + pal.flashB + ',' + (f.s * 0.4 * k).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(' + pal.flashC + ',0)');
       ctx.shadowBlur = 0;
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -147,9 +172,9 @@
     for (const b of bolts) {
       const a = alphaOf(b, t);
       if (a <= 0.01) continue;
-      strokePolyline(b.pts, 'rgba(255,32,32,' + (0.18 * a).toFixed(3) + ')', b.w * 6, 32 * a);
-      strokePolyline(b.pts, 'rgba(255,66,44,' + (0.55 * a).toFixed(3) + ')', b.w * 2.4, 16 * a);
-      strokePolyline(b.pts, 'rgba(255,246,240,' + (0.98 * a).toFixed(3) + ')', b.w * 0.9, 8 * a);
+      strokePolyline(b.pts, 'rgba(' + pal.glow + ',' + (0.18 * a).toFixed(3) + ')', b.w * 6, 32 * a);
+      strokePolyline(b.pts, 'rgba(' + pal.mid + ',' + (0.55 * a).toFixed(3) + ')', b.w * 2.4, 16 * a);
+      strokePolyline(b.pts, 'rgba(' + pal.core + ',' + (0.98 * a).toFixed(3) + ')', b.w * 0.9, 8 * a);
     }
 
     ctx.globalCompositeOperation = 'source-over';
@@ -196,6 +221,9 @@
   window.bgFx = {
     setEnabled(on) { if (on) start(); else stop(); },
     setPaused,
+    // 换色只是换个引用：正在跑的闪电下一帧就用新调色板，不重建画布也不中断动画
+    setTheme(name) { themeName = name === 'blue' ? 'blue' : 'dark'; pal = PALETTES[themeName]; },
+    get theme() { return themeName; },
     get enabled() { return running; },
   };
 
