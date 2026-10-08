@@ -7,6 +7,7 @@ const fs = require('fs');
 const config = require('./engine/config');
 const scan = require('./engine/scan');
 const clean = require('./engine/clean');
+const fullDisk = require('./engine/full-disk');
 const admin = require('./engine/admin');
 const startup = require('./engine/startup');
 const sysinfo = require('./engine/sysinfo');
@@ -394,6 +395,26 @@ ipcMain.handle('targets:list', async () => {
 ipcMain.handle('disk:free', () => freeSpace());
 
 ipcMain.handle('scan:user', (e, ids) => scan.scanTargets(validIds(ids, false)));
+
+ipcMain.handle('scan:fullDisk', () => fullDisk.scanAll((p) => send('fullDisk:progress', p)));
+
+ipcMain.handle('clean:fullDisk', async (e, categories, confirmed) => {
+  if (confirmed !== true) return { ok: false, results: [], message: '未经确认，已拒绝执行' };
+  const result = await fullDisk.clean(categories, confirmed);
+  if (result.ok) {
+    const deleted = result.results.reduce((n, x) => n + x.deleted, 0);
+    const freed = result.results.reduce((n, x) => n + x.freed, 0);
+    const names = result.results.map((x) => x.name).join('、');
+    log.append(`全盘垃圾清理 | 类别: ${names} | 删除 ${deleted} 项 | 释放 ${fmtMB(freed)}`);
+    if (deleted) ledger.record({
+      source: '全盘垃圾清理',
+      label: `${names}（删除 ${deleted} 项，释放 ${fmtMB(freed)}）`,
+      undo: null,
+      undoHint: NO_UNDO_DELETE,
+    });
+  }
+  return result;
+});
 
 ipcMain.handle('scan:system', (e, ids) => system.scanSystem(validIds(ids, true)));
 

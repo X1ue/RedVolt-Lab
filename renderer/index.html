@@ -146,12 +146,28 @@
       <button id="diskScan" class="btn primary">扫描（只读）</button>
       <button id="diskClean" class="btn danger">清理勾选项</button>
       <span class="spacer"></span>
+      <button id="diskSelectAll" class="btn ghost">全选项目（不含 NVIDIA 缓存）</button>
       <button id="diskSelectSafe" class="btn ghost">只勾选安全项</button>
       <button id="diskSelectNone" class="btn ghost">清空勾选</button>
     </div>
     <div id="browserBanner" class="banner hidden"></div>
     <p class="hint">扫描只读取文件信息，不删除任何内容。NVIDIA 缓存与「注意」级项目默认不勾选，需要你主动选。</p>
     <div id="diskList" class="list"></div>
+
+    <div class="card syscard full-disk-card">
+      <div class="syscard-head">
+        <span class="syscard-title">全盘垃圾文件搜索</span>
+        <span class="spacer"></span>
+        <button id="fullDiskScan" class="btn ghost small">搜索所有固定磁盘（只读）</button>
+        <button id="fullDiskSelectAll" class="btn ghost small" disabled>全选类别</button>
+        <button id="fullDiskSelectNone" class="btn ghost small" disabled>清空</button>
+        <button id="fullDiskClean" class="btn danger small" disabled>清理所选类别</button>
+      </div>
+      <p class="hint">搜索所有已就绪的本地固定磁盘中超过 30 天的 .tmp / .temp、.log 和 .dmp 文件，结果按类别统计并展示路径示例。搜索覆盖全盘，删除只限允许清理的目录（Temp 与各应用明确的日志目录等），受保护目录和数据库预写日志一律排除。删除不可撤销，必须先查看扫描结果、选择类别并再次确认。</p>
+      <div id="fullDiskProgress" class="syscard-progress hidden"></div>
+      <div id="fullDiskSummary" class="syscard-body muted">尚未扫描。搜索会读遍所有本地磁盘，但只有位于允许清理目录内的文件才能删除。</div>
+      <div id="fullDiskList" class="list"></div>
+    </div>
   </section>
 
   <!-- 系统级 -->
@@ -160,6 +176,8 @@
       <span class="spacer"></span>
       <button id="sysScan" class="btn primary">扫描（需要管理员）</button>
       <button id="sysClean" class="btn danger">清理勾选项（需要管理员）</button>
+      <button id="sysSelectAll" class="btn ghost">全选项目</button>
+      <button id="sysSelectNone" class="btn ghost">清空勾选</button>
     </div>
     <p class="hint">这些项目位于系统目录，扫描和清理都会弹一次 Windows 管理员授权（UAC）。拒绝授权则不做任何修改。提权脚本内部还有一份独立白名单，表外路径一律拒绝。</p>
     <div id="systemList" class="list"></div>
@@ -183,6 +201,8 @@
         <span class="spacer"></span>
         <button id="drvScan" class="btn ghost small">扫描（只读）</button>
         <button id="drvClean" class="btn danger small" disabled>删除勾选项</button>
+        <button id="drvSelectAll" class="btn ghost small" disabled>全选</button>
+        <button id="drvSelectNone" class="btn ghost small" disabled>清空</button>
       </div>
       <p class="hint">只列出「同一个 inf 在驱动库里存了多份」的情况，保留最新的一份（按 Windows 自己的排序规则：日期新者优先，日期相同再比版本号）。删除用 pnputil /delete-driver，不带 /force 也不带 /uninstall，任何仍被设备使用的包都会被系统自己拒绝。</p>
       <div id="drvBody" class="syscard-body muted">还没有扫描。扫描只读驱动库，不需要管理员权限，也不会删除任何驱动。</div>

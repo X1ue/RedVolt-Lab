@@ -15,6 +15,8 @@ const state = {
   wsAdvice: null,
   drvGroups: null,
   drvPicked: new Set(),
+  fullDiskScan: null,
+  fullDiskPicked: new Set(),
   health: null,
 };
 
@@ -234,6 +236,16 @@ function refreshButtons() {
   $('diskClean').disabled = busy || !hasSelection('disk');
   $('sysScan').disabled = busy;
   $('sysClean').disabled = busy || !hasSelection('system');
+  $('diskSelectAll').disabled = busy;
+  $('sysSelectAll').disabled = busy;
+  $('sysSelectNone').disabled = busy;
+  $('fullDiskScan').disabled = busy;
+  const fullDiskCategories = state.fullDiskScan && Array.isArray(state.fullDiskScan.categories)
+    ? state.fullDiskScan.categories : [];
+  const fullDiskCleanable = fullDiskCategories.filter((c) => c.deletableCount > 0 && !c.truncated);
+  $('fullDiskSelectAll').disabled = busy || !fullDiskCleanable.length;
+  $('fullDiskSelectNone').disabled = busy || !state.fullDiskPicked.size;
+  $('fullDiskClean').disabled = busy || !state.fullDiskPicked.size;
   $('diskSelectSafe').disabled = busy;
   $('diskSelectNone').disabled = busy;
   $('startupRefresh').disabled = busy;
@@ -244,7 +256,144 @@ function refreshButtons() {
   if ($('wsResetBase')) $('wsResetBase').disabled = busy || !wsCanClean();
   if ($('drvScan')) $('drvScan').disabled = busy;
   if ($('drvClean')) $('drvClean').disabled = busy || !state.drvPicked.size;
+  if ($('drvSelectAll')) $('drvSelectAll').disabled = busy || !state.drvGroups || !state.drvGroups.length;
+  if ($('drvSelectNone')) $('drvSelectNone').disabled = busy || !state.drvGroups || !state.drvGroups.length || !state.drvPicked.size;
   updateHeroStats();
+}
+
+function renderFullDisk() {
+  const host = $('fullDiskList');
+  const summary = $('fullDiskSummary');
+  host.textContent = '';
+  const result = state.fullDiskScan;
+  if (!result) {
+    summary.textContent = '尚未扫描。搜索会读遍所有本地磁盘，但只有位于允许清理目录内的文件才能删除。';
+    summary.classList.add('muted');
+    refreshButtons();
+    return;
+  }
+  summary.classList.remove('muted');
+  if (!result.ok) {
+    summary.textContent = result.message || '全盘搜索失败';
+    refreshButtons();
+    return;
+  }
+  if (!Array.isArray(result.categories)) {
+    summary.textContent = '全盘搜索失败';
+    refreshButtons();
+    return;
+  }
+  const roots = (result.roots || []).map(driveLabel).filter(Boolean).join('、');
+  summary.textContent = `扫描完成：${roots} · 检查 ${result.visitedDirs} 个目录 · 找到 ${result.totalCount} 个 · 可清理 ${result.totalDeletable} 个 · ${fmtBytes(result.totalDeletableSize)}${result.lockedDirs ? ` · ${result.lockedDirs} 个目录无法读取` : ''}${result.message ? ` · ${result.message}` : ''}`;
+  for (const category of result.categories) {
+    const selected = state.fullDiskPicked.has(category.id);
+    const row = el('label', 'row' + (selected ? ' checked' : ''));
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selected;
+    cb.disabled = category.deletableCount === 0 || category.truncated;
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.fullDiskPicked.add(category.id);
+      else state.fullDiskPicked.delete(category.id);
+      row.classList.toggle('checked', cb.checked);
+      refreshButtons();
+    });
+    row.appendChild(cb);
+    const body = el('div', 'body');
+    body.appendChild(el('div', 'name', category.name));
+    const note = category.truncated
+      ? '超过安全处理上限，暂不可批量清理；请缩小搜索范围后重试'
+      : (category.count ? `超过 30 天 · 找到 ${category.count} 个 · 可清理 ${category.deletableCount} 个` : '没有符合条件的文件');
+    body.appendChild(el('div', 'note', note));
+    if (category.examples && category.examples.length) {
+      body.appendChild(el('div', 'examples', '文件示例：' + category.examples.map(fileExample).join('；')));
+    }
+    row.appendChild(body);
+    const right = el('div', 'right');
+    right.appendChild(el('div', 'size', fmtBytes(category.deletableSize)));
+    right.appendChild(el('div', 'count', category.deletableCount + ' 项'));
+    row.appendChild(right);
+    host.appendChild(row);
+  }
+  refreshButtons();
+}
+
+async function doFullDiskScan() {
+  if (state.busy) return;
+  state.fullDiskScan = null;
+  state.fullDiskPicked.clear();
+  renderFullDisk();
+  const progress = $('fullDiskProgress');
+  progress.classList.remove('hidden');
+  progress.textContent = '正在搜索所有本地固定磁盘……';
+  setBusy(true, '正在全盘搜索（只读，不会删除文件）……');
+  try {
+    const result = await api.scanFullDisk();
+    state.fullDiskScan = result;
+    if (result.ok) {
+      status(`全盘搜索完成：找到 ${result.totalCount} 个 · 可清理 ${result.totalDeletable} 个`, 'ok');
+      progress.textContent = `搜索完成：检查 ${result.visitedDirs} 个目录`;
+    } else {
+      progress.textContent = result.message || '搜索失败';
+      status(result.message || '全盘搜索失败', 'err');
+    }
+    renderFullDisk();
+  } catch (e) {
+    progress.textContent = '搜索失败';
+    status('全盘搜索出错：' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function doFullDiskClean() {
+  if (state.busy || !state.fullDiskScan || !state.fullDiskScan.ok) return;
+  const categories = state.fullDiskScan.categories.filter((c) => state.fullDiskPicked.has(c.id) && c.deletableCount && !c.truncated);
+  if (!categories.length) { status('请先勾选要清理的文件类别', 'err'); return; }
+  const selected = categories.map((c) => c.id);
+  const ok = await confirmDialog({
+    title: '确认清理全盘搜索结果？',
+    desc: '只删除位于允许清理目录内、超过 30 天的文件（与各清理项同一条安全边界；受保护目录和数据库日志一律不删）。删除前会再次核对文件类型、时间、大小和路径；文件已变化、被占用或受保护时会跳过。此操作不可撤销。',
+    items: categories.map((c) => ({ name: c.name, text: `${c.deletableCount} 项 · ${fmtBytes(c.deletableSize)} · 例如 ${pathBaseList(c.examples)}` })),
+    requireAck: true,
+    okText: '确认删除所选类别',
+  });
+  if (!ok) return;
+  setBusy(true, '正在清理全盘搜索结果……');
+  try {
+    const result = await api.cleanFullDisk(selected, true);
+    if (!result.ok) { status(result.message || '全盘清理失败', 'err'); return; }
+    const lines = result.results.map((r) => ({
+      name: r.name,
+      text: `删除 ${r.deleted} 项，释放 ${fmtBytes(r.freed)}${r.locked ? `，跳过 ${r.locked} 项` : ''}`,
+    }));
+    const deleted = result.results.reduce((n, r) => n + r.deleted, 0);
+    const freed = result.results.reduce((n, r) => n + r.freed, 0);
+    lines.unshift({ name: '本次释放', text: fmtBytes(freed) });
+    await resultDialog('全盘清理完成', lines, `删除 ${deleted} 项 · 释放 ${fmtBytes(freed)}`);
+    state.fullDiskScan = null;
+    state.fullDiskPicked.clear();
+    $('fullDiskProgress').classList.add('hidden');
+    renderFullDisk();
+    await refreshFree();
+  } catch (e) {
+    status('全盘清理出错：' + ((e && e.message) || e), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function pathBaseList(paths) {
+  return (paths || []).map((p) => p.split(/[\\/]/).pop()).join('、') || '—';
+}
+
+function driveLabel(root) {
+  const match = /^([A-Za-z]:)[\\/]/.exec(String(root));
+  return match ? match[1] : '本地磁盘';
+}
+
+function fileExample(file) {
+  return `${driveLabel(file)} · ${pathBaseList([file])}`;
 }
 
 function updateHeroStats() {
@@ -626,6 +775,16 @@ function initSystemCards() {
   $('wsResetBase').addEventListener('click', () => doWsClean('cleanup-resetbase'));
   $('drvScan').addEventListener('click', doDrvScan);
   $('drvClean').addEventListener('click', doDrvClean);
+  $('drvSelectAll').addEventListener('click', () => {
+    for (const g of state.drvGroups || []) state.drvPicked.add(drvKey(g));
+    drvRender('', state.drvGroups || []);
+    refreshButtons();
+  });
+  $('drvSelectNone').addEventListener('click', () => {
+    state.drvPicked.clear();
+    drvRender('', state.drvGroups || []);
+    refreshButtons();
+  });
   api.onWinsxsProgress((p) => {
     const box = $('wsProgress');
     if (!box || !p) return;
@@ -1643,14 +1802,34 @@ async function init() {
 
   $('diskScan').addEventListener('click', () => doScan('disk'));
   $('diskClean').addEventListener('click', () => doClean('disk'));
+  $('fullDiskScan').addEventListener('click', doFullDiskScan);
+  $('fullDiskSelectAll').addEventListener('click', () => {
+    for (const c of state.fullDiskScan && state.fullDiskScan.categories || []) {
+      if (c.deletableCount > 0 && !c.truncated) state.fullDiskPicked.add(c.id);
+    }
+    renderFullDisk();
+  });
+  $('fullDiskSelectNone').addEventListener('click', () => {
+    state.fullDiskPicked.clear();
+    renderFullDisk();
+  });
+  $('fullDiskClean').addEventListener('click', doFullDiskClean);
   $('sysScan').addEventListener('click', () => doScan('system'));
   $('sysClean').addEventListener('click', () => doClean('system'));
   $('refreshFree').addEventListener('click', refreshFree);
 
   $('diskSelectSafe').addEventListener('click', () => {
-    state.selected.clear();
+    for (const t of state.targets) if (t.group === 'disk') state.selected.delete(t.id);
     for (const t of state.targets) {
       if (t.group === 'disk' && t.defaultChecked && t.level === 'safe') state.selected.add(t.id);
+    }
+    renderTargets('disk');
+    refreshButtons();
+  });
+  $('diskSelectAll').addEventListener('click', () => {
+    for (const t of state.targets) if (t.group === 'disk') state.selected.delete(t.id);
+    for (const t of state.targets) {
+      if (t.group === 'disk' && t.id !== 'nvidiaDXCache' && t.id !== 'nvidiaGLCache') state.selected.add(t.id);
     }
     renderTargets('disk');
     refreshButtons();
@@ -1658,6 +1837,16 @@ async function init() {
   $('diskSelectNone').addEventListener('click', () => {
     for (const t of state.targets) if (t.group === 'disk') state.selected.delete(t.id);
     renderTargets('disk');
+    refreshButtons();
+  });
+  $('sysSelectAll').addEventListener('click', () => {
+    for (const t of state.targets) if (t.group === 'system') state.selected.add(t.id);
+    renderTargets('system');
+    refreshButtons();
+  });
+  $('sysSelectNone').addEventListener('click', () => {
+    for (const t of state.targets) if (t.group === 'system') state.selected.delete(t.id);
+    renderTargets('system');
     refreshButtons();
   });
 
@@ -1703,6 +1892,11 @@ async function init() {
       const t = state.byId.get(p.id);
       status('正在处理: ' + (t ? t.name : p.id));
     }
+  });
+  api.onFullDiskProgress((p) => {
+    if (!p || p.phase !== 'scan') return;
+    $('fullDiskProgress').classList.remove('hidden');
+    $('fullDiskProgress').textContent = `正在扫描：已检查 ${p.visited} 个目录，找到 ${p.matched} 个候选文件`;
   });
   api.onFolderProgress((p) => {
     $('folderProgress').textContent = `正在统计 ${p.done}/${p.total}: ${p.name}`;

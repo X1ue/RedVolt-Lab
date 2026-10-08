@@ -8,6 +8,7 @@ const safety = require('./engine/safety');
 const clean = require('./engine/clean');
 const config = require('./engine/config');
 const scan = require('./engine/scan');
+const fullDisk = require('./engine/full-disk');
 
 let pass = 0;
 let fail = 0;
@@ -75,6 +76,52 @@ function setup() {
   check('扫描未删除沙盒内容', fs.readdirSync(sandbox).length === before);
   const sysres = await scan.scanTarget('windowsUpdateCache');
   check('系统级目标需管理员（不直接读）', sysres.status === 'needs-admin', sysres);
+
+  console.log('== 5b. 全盘垃圾候选只读扫描与二次确认 ==');
+  setup();
+  const oldAt = new Date(Date.now() - (fullDisk.AGE_DAYS + 2) * 86400000);
+  const oldTmp = path.join(sandbox, 'old.tmp');
+  const freshTmp = path.join(sandbox, 'fresh.tmp');
+  const oldLog = path.join(sandbox, 'old.log');
+  const oldDmp = path.join(sandbox, 'old.dmp');
+  const linkedLog = path.join(outside, 'linked.log');
+  for (const file of [oldTmp, oldLog, oldDmp, freshTmp]) fs.writeFileSync(file, 'test-data');
+  fs.writeFileSync(linkedLog, 'outside-data');
+  for (const file of [oldTmp, oldLog, oldDmp]) fs.utimesSync(file, oldAt, oldAt);
+  fs.utimesSync(linkedLog, oldAt, oldAt);
+  const fullScan = await fullDisk.scanRoots([sandbox]);
+  const byCategory = Object.fromEntries(fullScan.categories.map((x) => [x.id, x]));
+  check('按临时、日志、转储类别统计超过 30 天文件', byCategory.tmp.count === 1 && byCategory.log.count === 1 && byCategory.dmp.count === 1, byCategory);
+  check('全盘候选扫描只读', fs.existsSync(oldTmp) && fs.existsSync(oldLog) && fs.existsSync(oldDmp));
+  const refusedFullClean = await fullDisk.clean(['tmp'], false);
+  check('未显式确认拒绝清理', refusedFullClean.ok === false && fs.existsSync(oldTmp));
+  const fullClean = await fullDisk.clean(['tmp'], true);
+  check('确认后只删除所选且过期的临时文件', fullClean.ok && !fs.existsSync(oldTmp) && fs.existsSync(freshTmp) && fs.existsSync(oldLog) && fs.existsSync(oldDmp), fullClean);
+  check('扫描跳过链接目录中的候选文件', byCategory.log.count === 1 && fs.existsSync(linkedLog));
+  check('扫描链接目录时未触碰链接目标', fs.readFileSync(path.join(outside, 'precious.txt'), 'utf8') === 'DO-NOT-DELETE');
+
+  // ---------- 删除权限落回允许根白名单（全盘搜索只是只读体检） ----------
+  check('预写日志即使在允许根内也不可删', fullDisk.isDeletable(path.join(config.paths.TEMP, 'db', '0000000000000e8c.log')) === false);
+  check('纯数字名日志按预写日志处理', fullDisk.isDeletable(path.join(config.paths.TEMP, 'db', '20260101.log')) === false);
+  check('普通日志在 Temp 内可删', fullDisk.isDeletable(path.join(config.paths.TEMP, 'app.log')) === true);
+  check('明确日志目录里的日志可删', fullDisk.isDeletable(path.join(config.paths.LOCALAPPDATA, 'pip', 'logs', 'pip-install.log')) === true);
+  check('散落在应用数据目录里的日志只报告不删', fullDisk.isDeletable(path.join(config.paths.LOCALAPPDATA, 'SomeApp', 'state.log')) === false);
+  check('允许根之外的日志不可删', fullDisk.isDeletable(path.join(process.env.USERPROFILE || os.homedir(), 'notes.log')) === false);
+  check('保护清单内的临时文件不可删', fullDisk.isDeletable(path.join(config.paths.LOCALAPPDATA, 'Packages', 'X', 'a.tmp')) === false);
+  check('保护清单的浏览器缓存例外仍可删', fullDisk.isDeletable(
+    path.join(config.paths.LOCALAPPDATA, 'Microsoft', 'Edge', 'User Data', 'Default', 'Cache', 'f.tmp')) === true);
+  const walLog = path.join(sandbox, '0000000000000e8c.log');
+  fs.writeFileSync(walLog, 'wal');
+  fs.utimesSync(walLog, oldAt, oldAt);
+  fullDisk.reset();
+  const reScan = await fullDisk.scanRoots([sandbox]);
+  const logRow = reScan.categories.find((x) => x.id === 'log');
+  check('预写日志计入找到但不计入可清理', logRow.count === 2 && logRow.deletableCount === 1, logRow);
+  check('找到的总量与可删总量分开统计', reScan.totalCount >= reScan.totalDeletable && reScan.totalSize >= reScan.totalDeletableSize, reScan);
+  check('路径示例只列可删的项', logRow.examples.every((p) => fullDisk.isDeletable(p)), logRow.examples);
+  const logClean = await fullDisk.clean(['log'], true);
+  check('确认清理也绝不删预写日志', logClean.ok && fs.existsSync(walLog) && !fs.existsSync(oldLog), logClean);
+  fullDisk.reset();
 
   console.log('== 6. winsxs.spent 时长文案 ==');
   const winsxs = require('./engine/winsxs');

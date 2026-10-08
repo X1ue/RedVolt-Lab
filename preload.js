@@ -14,8 +14,10 @@ contextBridge.exposeInMainWorld('optimizer', {
   diskFree: () => invoke('disk:free'),
 
   scanUser: (ids) => invoke('scan:user', ids),
+  scanFullDisk: () => invoke('scan:fullDisk'),
   scanSystem: (ids) => invoke('scan:system', ids),
   cleanUser: (ids, confirmed) => invoke('clean:user', ids, confirmed),
+  cleanFullDisk: (categories, confirmed) => invoke('clean:fullDisk', categories, confirmed),
   cleanSystem: (ids, confirmed) => invoke('clean:system', ids, confirmed),
 
   browserStatus: () => invoke('browsers:status'),
@@ -103,6 +105,7 @@ contextBridge.exposeInMainWorld('optimizer', {
   // 唤醒重建专用：初始化装完监听器再报，主进程据此露脸，避免 active 事件发在监听器之前
   winReady: () => ipcRenderer.send('win:ready'),
   onCleanProgress: (cb) => subscribe('clean:progress', cb),
+  onFullDiskProgress: (cb) => subscribe('fullDisk:progress', cb),
   onFolderProgress: (cb) => subscribe('folders:progress', cb),
   onUpdateState: (cb) => subscribe('update:state', cb),
   onHealthProgress: (cb) => subscribe('health:progress', cb),
