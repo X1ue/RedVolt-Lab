@@ -261,6 +261,17 @@ async function freeSpace() {
   return Number.isFinite(n) ? n : null;
 }
 
+function realPath(value) {
+  try { return fs.realpathSync.native(path.resolve(value)); }
+  catch (e) { return null; }
+}
+
+/** 检查规范化后的实际路径边界，拒绝 .. 路径和越界的 junction / 符号链接。 */
+function isWithinPath(target, root) {
+  const relative = path.relative(root, target);
+  return relative === '' || (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
+}
+
 /** 渲染进程只能传 ID；路径一律由主进程从配置解析，杜绝任意路径删除 */
 function validIds(input, wantAdmin) {
   if (!Array.isArray(input)) return [];
@@ -727,10 +738,10 @@ ipcMain.handle('sysinfo:topFolders', (e, root, limit) => {
     config.paths.TEMP, config.paths.PROGRAMDATA,
   ];
   const target = typeof root === 'string' && root.trim() ? root.trim() : os.homedir();
-  const low = target.toLowerCase();
-  const ok = allowed.some((r) => {
-    const rl = r.toLowerCase();
-    return low === rl || low.startsWith(rl + path.sep);
+  const realTarget = realPath(target);
+  const ok = !!realTarget && allowed.some((r) => {
+    const realRoot = realPath(r);
+    return !!realRoot && isWithinPath(realTarget, realRoot);
   });
   if (!ok) {
     return Promise.resolve({
@@ -824,8 +835,11 @@ ipcMain.handle('paths:get', () => ({
 ipcMain.handle('shell:openPath', (e, target) => {
   if (typeof target !== 'string' || !target) return 'invalid';
   const allowed = [app.getPath('userData'), startup.info().backupDir, log.getPath()].filter(Boolean);
-  const low = target.toLowerCase();
-  const ok = allowed.some((a) => low === a.toLowerCase() || low.startsWith(a.toLowerCase() + path.sep));
+  const realTarget = realPath(target);
+  const ok = !!realTarget && allowed.some((a) => {
+    const realRoot = realPath(a);
+    return !!realRoot && isWithinPath(realTarget, realRoot);
+  });
   if (!ok) return 'not-allowed';
   return shell.openPath(target);
 });

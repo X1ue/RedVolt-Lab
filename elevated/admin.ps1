@@ -17,11 +17,13 @@ $Allowed = @(
 
 function Test-Allowed([string]$Path) {
     if (-not $Path) { return $false }
-    $norm = $Path.TrimEnd('\').ToLower()
+    try { $norm = [IO.Path]::GetFullPath($Path).TrimEnd('\') }
+    catch { return $false }
     foreach ($a in $Allowed) {
-        $an = $a.TrimEnd('\').ToLower()
-        if ($norm -eq $an) { return $true }
-        if ($norm.StartsWith($an + '\')) { return $true }
+        try { $an = [IO.Path]::GetFullPath($a).TrimEnd('\') }
+        catch { continue }
+        if ($norm.Equals($an, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($norm.StartsWith($an + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
     }
     return $false
 }
